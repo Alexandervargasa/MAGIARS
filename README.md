@@ -21,6 +21,8 @@ npm run dev
 Abre `http://localhost:5173`.
 
 ## ✅ Requisitos Cubiertos
+- **HU-01 F**: Enviar un mensaje al chatbot en redes sociales (Con el ChatWidget, con el botón Enviar).
+- **HU-02 F**: Recibir respuesta automática del chatbot (El bot te contesta con un mensaje por defecto).
 - **HU-03 F**: Escalar mi caso a un humano (ChatWidget con botón Escalar).
 - **HU-04 F**: Atender conversaciones escaladas (Inbox de casos).
 - **HU-05 F**: Configurar integraciones con redes sociales (formulario Integrations).
