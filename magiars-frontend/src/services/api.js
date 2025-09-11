@@ -50,6 +50,14 @@ const api = {
   resolveEscalation(id) {
     return request(`/escalations/${id}/resolve`, { method: "POST" });
   },
+
+  // Chatbot (HU-01 / HU-02)
+  sendMessage(message) {
+    return request("/messages", {
+      method: "POST",
+      body: JSON.stringify({ message }),
+    });
+  },
 };
 
 export default api;

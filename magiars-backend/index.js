@@ -54,6 +54,32 @@ app.post("/api/escalations/:id/resolve", (req, res) => {
   res.json({ success: true });
 });
 
+// 🔹 Chatbot logic (HU-01 & HU-02)
+function getBotResponse(message) {
+  const msg = message.toLowerCase();
+
+  if (msg.includes("hola")) {
+    return "¡Hola! Soy tu asistente automático 🤖. ¿En qué te ayudo?";
+  } else if (msg.includes("ayuda")) {
+    return "Claro, dime qué necesitas y te guiaré.";
+  } else if (msg.includes("adios")) {
+    return "¡Hasta luego! 👋";
+  } else {
+    return "Lo siento, no entendí tu mensaje. ¿Puedes reformularlo?";
+  }
+}
+
+app.post("/api/messages", (req, res) => {
+  const { message } = req.body;
+
+  if (!message) {
+    return res.status(400).json({ error: "No se recibió mensaje" });
+  }
+
+  const reply = getBotResponse(message);
+  res.json({ reply });
+});
+
 const PORT = 4000;
 app.listen(PORT, () => {
   console.log(`MAGIARS backend listening on http://localhost:${PORT}`);
