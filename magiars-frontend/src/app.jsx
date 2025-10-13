@@ -4,6 +4,7 @@ import { Routes, Route, Link, useNavigate } from "react-router-dom";
 import LoginMeta from "./components/LoginMeta";
 import AuthCallback from "./pages/AuthCallback";
 import Home from "./pages/Home";
+import About from "./pages/About";
 import Inbox from "./pages/Inbox.jsx";
 import Integrations from "./pages/Integrations.jsx";
 import ChatWidget from "./components/ChatWidget.jsx";
@@ -49,7 +50,8 @@ export default function App() {
           <div>
             <Link to="/" style={{ color: "white", marginRight: 12 }}>Inicio</Link>
             <Link to="/inbox" style={{ color: "white", marginRight: 12 }}>Inbox</Link>
-            <Link to="/integrations" style={{ color: "white", marginRight: 12}}>Integraciones</Link>
+            <Link to="/integrations" style={{ color: "white", marginRight: 12 }}>Integraciones</Link>
+            <Link to="/about" style={{ color: "white", marginRight: 12 }}>Acerca de</Link>
           </div>
           <UserProfile user={user} onLogout={handleLogout} />
         </nav>
@@ -65,6 +67,7 @@ export default function App() {
             } />
             <Route path="/inbox" element={<Inbox />} />
             <Route path="/integrations" element={<Integrations />} />
+            <Route path="/about" element={<About />} />
           </Routes>
         </main>
       </div>

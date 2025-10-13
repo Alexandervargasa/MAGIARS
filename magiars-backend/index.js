@@ -1,9 +1,9 @@
-
 const express = require("express");
 const cors = require("cors");
 const bodyParser = require("body-parser");
 const axios = require("axios");
 const jwt = require("jsonwebtoken");
+const { GoogleGenerativeAI } = require("@google/generative-ai");
 require("dotenv").config();
 
 const app = express();
@@ -15,6 +15,10 @@ const META_APP_ID = process.env.META_APP_ID;
 const META_APP_SECRET = process.env.META_APP_SECRET;
 const META_REDIRECT_URI = process.env.META_REDIRECT_URI || "http://localhost:5173/auth/callback";
 const JWT_SECRET = process.env.JWT_SECRET || "tu-llave-secreta-aqui";
+const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+
+// Inicializar cliente de Gemini
+const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
 // Almacenar usuarios (en producción usa base de datos)
 let users = [];
@@ -174,7 +178,7 @@ app.post("/api/auth/data-deletion", (req, res) => {
 });
 
 // ============================================================
-// RUTAS EXISTENTES (sin cambios)
+// RUTAS EXISTENTES
 // ============================================================
 
 // Alerts
@@ -220,43 +224,213 @@ app.post("/api/escalations/:id/resolve", (req, res) => {
   res.json({ success: true });
 });
 
-// Chatbot logic
-function getBotResponse(message) {
-  const msg = message.toLowerCase();
+// ============================================================
+// CHATBOT CON GEMINI
+// ============================================================
 
-  if (msg.includes("hola")) {
-    return "¡Hola! Soy tu asistente automático 🤖. ¿En qué te ayudo?";
-  } else if (msg.includes("ayuda")) {
-    return "Claro, dime qué necesitas y te guiaré.";
-  } else if (msg.includes("adios")) {
-    return "¡Hasta luego! 👋";
-  } else {
-    return "Lo siento, no entendí tu mensaje. ¿Puedes reformularlo?";
+// Función para detectar si requiere escalación
+function requiresEscalation(message) {
+  const escalationKeywords = ["humano", "asesor", "persona", "hablar con humano", "atención humana"];
+  const lowerMessage = message.toLowerCase();
+  return escalationKeywords.some(keyword => lowerMessage.includes(keyword));
+}
+
+// Función para obtener respuesta de Gemini
+async function getGeminiResponse(message, conversationHistory = []) {
+  try {
+    if (!GEMINI_API_KEY) {
+      console.log("GEMINI_API_KEY no configurada");
+      return "Gemini no está configurado. Por favor, configura tu API key.";
+    }
+
+    console.log("Llamando a Gemini con mensaje:", message);
+
+    // Obtener el modelo Gemini 2.5 Flash
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+    // Construir el prompt con el contexto de MAGIARS
+    let prompt = `Eres el asistente inteligente de MAGIARS, un chatbot avanzado para Instagram basado en inteligencia artificial.
+
+MAGIARS es una plataforma integral que:
+- Automatiza la atención y respuesta a mensajes directos y comentarios en Instagram
+- Monitorea y analiza estadísticas de publicaciones en tiempo real
+- Genera informes personalizados con métricas clave de desempeño
+- Se integra con otras herramientas de marketing digital para potenciar campañas
+
+Tu función es ayudar a usuarios y empresas que gestionan redes sociales, ofreciendo soporte sobre:
+- Cómo automatizar interacciones con seguidores
+- Análisis de métricas y estadísticas de Instagram
+- Configuración de integraciones con herramientas de marketing
+- Generación de informes y dashboards personalizados
+- Estrategias para mejorar engagement y resultados
+
+Responde de manera profesional, concisa y orientada a resultados. Usa un tono amable pero experto en marketing digital y automatización.
+\n\n`;
+    
+    // Agregar historial de conversación si existe
+    if (conversationHistory.length > 0) {
+      prompt += "Historial de la conversación:\n";
+      conversationHistory.forEach(msg => {
+        if (msg.role === "user") {
+          prompt += `Usuario: ${msg.content}\n`;
+        } else if (msg.role === "assistant") {
+          prompt += `Asistente: ${msg.content}\n`;
+        }
+      });
+      prompt += "\n";
+    }
+    
+    prompt += `Usuario: ${message}\nAsistente:`;
+
+    // Generar respuesta
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const text = response.text();
+
+    console.log("Respuesta de Gemini:", text);
+    return text;
+  } catch (error) {
+    console.error("Error con Gemini:", error.message);
+    return "Lo siento, hubo un error procesando tu solicitud. Intenta de nuevo.";
   }
 }
 
-app.post("/api/messages", (req, res) => {
-  const { message, userId, conversationId } = req.body;
+// Función para categorizar conversación con Gemini
+async function categorizeConversation(conversationHistory) {
+  try {
+    if (!GEMINI_API_KEY) {
+      return "General";
+    }
+
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+    // Construir resumen de la conversación
+    let conversationText = "";
+    conversationHistory.forEach(msg => {
+      if (msg.role === "user") {
+        conversationText += `Usuario: ${msg.content}\n`;
+      } else if (msg.role === "assistant") {
+        conversationText += `Bot: ${msg.content}\n`;
+      }
+    });
+
+    const prompt = `Analiza la siguiente conversación y clasifícala en UNA de estas categorías exactas. Responde SOLO con el nombre de la categoría, nada más:
+
+Categorías disponibles:
+- Soporte Técnico
+- Consulta de Precios
+- Problema de Cuenta
+- Integración
+- Consulta General
+- Escalación
+- Otro
+
+Conversación:
+${conversationText}
+
+Categoría:`;
+
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const category = response.text().trim();
+
+    console.log("Categoría detectada:", category);
+    return category;
+  } catch (error) {
+    console.error("Error al categorizar:", error.message);
+    return "General";
+  }
+}
+
+// Función para generar título de conversación con Gemini
+async function generateConversationTitle(firstMessage) {
+  try {
+    if (!GEMINI_API_KEY) {
+      return firstMessage.substring(0, 30) + (firstMessage.length > 30 ? "..." : "");
+    }
+
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+    const prompt = `Genera un título corto y descriptivo (máximo 40 caracteres) para una conversación que comienza con este mensaje del usuario. Responde SOLO con el título, sin comillas ni puntos:
+
+Mensaje: "${firstMessage}"
+
+Título:`;
+
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    let title = response.text().trim();
+    
+    // Limpiar el título de caracteres no deseados
+    title = title.replace(/['"`.]/g, '').trim();
+    
+    // Asegurar que no exceda 40 caracteres
+    if (title.length > 40) {
+      title = title.substring(0, 37) + "...";
+    }
+
+    console.log("✅ Título generado:", title);
+    return title;
+  } catch (error) {
+    console.error("❌ Error al generar título:", error.message);
+    return firstMessage.substring(0, 30) + (firstMessage.length > 30 ? "..." : "");
+  }
+}
+
+// Endpoint principal para mensajes
+app.post("/api/messages", async (req, res) => {
+  const { message, userId, conversationId, conversationHistory, isFirstMessage } = req.body;
 
   if (!message) {
     return res.status(400).json({ error: "No se recibió mensaje" });
   }
 
-  const reply = getBotResponse(message);
-  
-  // Guardar la conversación
-  if (userId) {
-    conversations.push({
-      id: Date.now().toString(),
-      userId: userId,
-      conversationId: conversationId || "conv-" + Date.now(),
-      userMessage: message,
-      botReply: reply,
-      timestamp: new Date().toISOString(),
-    });
-  }
+  try {
+    // Verificar si requiere escalación
+    if (requiresEscalation(message)) {
+      return res.json({ 
+        reply: "Entendido. Te conectaremos con un agente humano pronto.", 
+        requiresEscalation: true 
+      });
+    }
+    
+    // Generar título si es el primer mensaje
+    let title = null;
+    if (isFirstMessage) {
+      console.log("🔍 Detectado primer mensaje, generando título...");
+      title = await generateConversationTitle(message);
+      console.log("📝 Título a enviar:", title);
+    }
+    
+    // Usar Gemini para responder
+    const reply = await getGeminiResponse(message, conversationHistory || []);
+    
+    console.log("Enviando respuesta al frontend:", reply);
+    
+    // Categorizar la conversación si tiene más de 2 mensajes
+    let category = null;
+    if (conversationHistory && conversationHistory.length >= 2) {
+      category = await categorizeConversation([...conversationHistory, { role: "user", content: message }, { role: "assistant", content: reply }]);
+    }
+    
+    // Guardar la conversación
+    if (userId) {
+      conversations.push({
+        id: Date.now().toString(),
+        userId: userId,
+        conversationId: conversationId || "conv-" + Date.now(),
+        userMessage: message,
+        botReply: reply,
+        category: category,
+        timestamp: new Date().toISOString(),
+      });
+    }
 
-  res.json({ reply });
+    return res.json({ reply, requiresEscalation: false, category, title });
+  } catch (error) {
+    console.error("Error procesando mensaje:", error);
+    return res.status(500).json({ error: "Error al procesar tu mensaje" });
+  }
 });
 
 // Obtener historial de conversaciones

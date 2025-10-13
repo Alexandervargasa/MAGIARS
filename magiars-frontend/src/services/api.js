@@ -112,12 +112,18 @@ const api = {
   },
 
   // ============================================================
-  // CHATBOT (HU-01 / HU-02)
+  // CHATBOT (HU-01 / HU-02) - ACTUALIZADO PARA GEMINI
   // ============================================================
-  sendMessage(message, userId, conversationId) {
+  sendMessage(message, userId, conversationId, conversationHistory = [], isFirstMessage = false) {
     return request("/messages", {
       method: "POST",
-      body: JSON.stringify({ message, userId, conversationId }),
+      body: JSON.stringify({ 
+        message, 
+        userId, 
+        conversationId,
+        conversationHistory,
+        isFirstMessage
+      }),
     });
   },
 
