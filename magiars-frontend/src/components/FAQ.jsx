@@ -1,3 +1,4 @@
+// src/components/FAQ.jsx
 import React, { useState } from "react";
 
 const faqs = [
@@ -60,27 +61,63 @@ function FAQ() {
 
   return (
     <div style={styles.container}>
+      <style>{`
+        @keyframes slideDown {
+          from { 
+            opacity: 0; 
+            max-height: 0;
+            transform: translateY(-10px);
+          }
+          to { 
+            opacity: 1; 
+            max-height: 500px;
+            transform: translateY(0);
+          }
+        }
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(20px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+      `}</style>
+
       <h2 style={styles.title}>❓ Preguntas Frecuentes</h2>
+      
       <div style={styles.faqList}>
-        {faqs.map((faq) => (
-          <div key={faq.id} style={styles.faqItem}>
+        {faqs.map((faq, idx) => (
+          <div 
+            key={faq.id} 
+            style={{
+              ...styles.faqItem,
+              animationDelay: `${idx * 0.05}s`
+            }}
+          >
             <button
               onClick={() => toggleFAQ(faq.id)}
               style={{
                 ...styles.faqQuestion,
-                backgroundColor:
-                  openId === faq.id ? "#0066cc" : "#f5f5f5",
-                color: openId === faq.id ? "#fff" : "#333",
+                background: openId === faq.id 
+                  ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+                  : 'rgba(255, 255, 255, 0.05)',
+                borderLeft: openId === faq.id 
+                  ? '3px solid #667eea'
+                  : '3px solid transparent',
               }}
             >
+              <span style={styles.questionIcon}>
+                {openId === faq.id ? '❓' : '💬'}
+              </span>
               <span style={styles.questionText}>{faq.question}</span>
-              <span style={styles.icon}>
-                {openId === faq.id ? "▼" : "▶"}
+              <span style={{
+                ...styles.icon,
+                transform: openId === faq.id ? 'rotate(180deg)' : 'rotate(0deg)',
+              }}>
+                ▼
               </span>
             </button>
+            
             {openId === faq.id && (
               <div style={styles.faqAnswer}>
-                <p>{faq.answer}</p>
+                <p style={styles.answerText}>{faq.answer}</p>
               </div>
             )}
           </div>
@@ -92,54 +129,81 @@ function FAQ() {
 
 const styles = {
   container: {
-    maxWidth: "800px",
-    margin: "40px auto",
-    padding: "20px",
+    maxWidth: '900px',
+    margin: '0 auto',
+    padding: '0',
   },
+
   title: {
-    fontSize: "28px",
-    textAlign: "center",
-    marginBottom: "30px",
-    color: "#333",
+    fontSize: '32px',
+    textAlign: 'center',
+    marginBottom: '40px',
+    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+    WebkitBackgroundClip: 'text',
+    WebkitTextFillColor: 'transparent',
+    backgroundClip: 'text',
+    fontWeight: '700',
   },
+
   faqList: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "10px",
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '15px',
   },
+
   faqItem: {
-    border: "1px solid #ddd",
-    borderRadius: "8px",
-    overflow: "hidden",
-    boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+    background: 'rgba(15, 12, 41, 0.6)',
+    border: '1px solid rgba(102, 126, 234, 0.2)',
+    borderRadius: '15px',
+    overflow: 'hidden',
+    transition: 'all 0.3s ease',
+    animation: 'fadeIn 0.5s ease-out',
   },
+
   faqQuestion: {
-    width: "100%",
-    padding: "15px",
-    border: "none",
-    cursor: "pointer",
-    fontSize: "16px",
-    fontWeight: "500",
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    transition: "all 0.3s ease",
+    width: '100%',
+    padding: '18px 24px',
+    border: 'none',
+    cursor: 'pointer',
+    fontSize: '16px',
+    fontWeight: '600',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '15px',
+    transition: 'all 0.3s ease',
+    color: '#fff',
   },
+
+  questionIcon: {
+    fontSize: '20px',
+    flexShrink: 0,
+  },
+
   questionText: {
-    textAlign: "left",
+    textAlign: 'left',
     flex: 1,
+    fontSize: '15px',
   },
+
   icon: {
-    marginLeft: "10px",
-    fontSize: "12px",
-    transition: "transform 0.3s ease",
+    fontSize: '12px',
+    transition: 'transform 0.3s ease',
+    flexShrink: 0,
+    opacity: 0.7,
   },
+
   faqAnswer: {
-    padding: "15px",
-    backgroundColor: "#fafafa",
-    borderTop: "1px solid #eee",
-    lineHeight: "1.6",
-    color: "#555",
+    padding: '20px 24px 24px 24px',
+    background: 'rgba(255, 255, 255, 0.03)',
+    borderTop: '1px solid rgba(102, 126, 234, 0.1)',
+    animation: 'slideDown 0.3s ease-out',
+  },
+
+  answerText: {
+    lineHeight: '1.7',
+    color: 'rgba(255, 255, 255, 0.8)',
+    fontSize: '14px',
+    margin: 0,
   },
 };
 

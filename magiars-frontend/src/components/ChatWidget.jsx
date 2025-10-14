@@ -16,7 +16,7 @@ export default function ChatWidget() {
   const [showSidebar, setShowSidebar] = useState(true);
 
   // Inicializar conversación al cargar
-  useEffect(() => {
+   useEffect(() => {
     initializeNewChat();
     loadChatHistory();
   }, []);
@@ -257,128 +257,93 @@ export default function ChatWidget() {
     return colors[category] || "#95a5a6";
   };
 
-  return (
-    <div style={{ display: "flex", gap: "10px", height: "600px" }}>
+    return (
+    <div style={styles.container}>
+      <style>{`
+        @keyframes slideIn {
+          from { opacity: 0; transform: translateY(10px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes fadeIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.5; }
+        }
+      `}</style>
+
       {/* Sidebar */}
-      <div
-        style={{
-          width: showSidebar ? "250px" : "0",
-          background: "#1a1a1a",
-          color: "white",
-          padding: showSidebar ? "15px" : "0",
-          overflowY: "auto",
-          transition: "width 0.3s",
-          borderRight: "1px solid #333",
-        }}
-      >
-        <button
-          onClick={() => {
-            saveChatToHistory();
-            initializeNewChat();
-          }}
-          style={{
-            width: "100%",
-            padding: "10px",
-            background: "#0066cc",
-            color: "white",
-            border: "none",
-            borderRadius: "6px",
-            marginBottom: "15px",
-            cursor: "pointer",
-          }}
-        >
+      <div style={{
+        ...styles.sidebar,
+        width: showSidebar ? '280px' : '0',
+        padding: showSidebar ? '20px' : '0',
+      }}>
+        <button onClick={() => {
+          saveChatToHistory();
+          initializeNewChat();
+        }} style={styles.newChatButton}>
           ➕ Nuevo Chat
         </button>
 
-        <div style={{ fontSize: "12px", color: "#999", marginBottom: "10px" }}>
-          Historial
-        </div>
+        <div style={styles.historyLabel}>Historial</div>
 
-        {chatHistory.map((chat) => (
-          <div
-            key={chat.id}
-            onClick={() => loadChat(chat)}
-            style={{
-              padding: "10px",
-              background: conversationId === chat.id ? "#333" : "transparent",
-              borderRadius: "6px",
-              marginBottom: "8px",
-              cursor: "pointer",
-              transition: "background 0.2s",
-            }}
-            onMouseEnter={(e) => {
-              if (conversationId !== chat.id) e.currentTarget.style.background = "#222";
-            }}
-            onMouseLeave={(e) => {
-              if (conversationId !== chat.id) e.currentTarget.style.background = "transparent";
-            }}
-          >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: chat.category ? "6px" : "0" }}>
-              <span style={{ fontSize: "13px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1 }}>
-                {chat.title}
-              </span>
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  deleteChat(chat.id);
-                }}
-                style={{
-                  background: "transparent",
-                  color: "#999",
-                  border: "none",
-                  cursor: "pointer",
-                  fontSize: "16px",
-                  marginLeft: "8px",
-                  flexShrink: 0,
-                }}
-              >
-                ✕
-              </button>
+        <div style={styles.historyList}>
+          {chatHistory.map((chat) => (
+            <div
+              key={chat.id}
+              onClick={() => loadChat(chat)}
+              style={{
+                ...styles.historyItem,
+                background: conversationId === chat.id 
+                  ? 'rgba(102, 126, 234, 0.2)' 
+                  : 'rgba(255, 255, 255, 0.05)',
+              }}
+            >
+              <div style={styles.historyItemHeader}>
+                <span style={styles.historyItemTitle}>
+                  {chat.title}
+                </span>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    deleteChat(chat.id);
+                  }}
+                  style={styles.deleteButton}
+                >
+                  ✕
+                </button>
+              </div>
+              {chat.category && (
+                <span style={{
+                  ...styles.categoryBadge,
+                  background: getCategoryColor(chat.category),
+                }}>
+                  {chat.category}
+                </span>
+              )}
             </div>
-            {chat.category && (
-              <span style={{
-                fontSize: "10px",
-                padding: "3px 8px",
-                background: getCategoryColor(chat.category),
-                borderRadius: "4px",
-                display: "inline-block",
-                color: "#fff",
-              }}>
-                {chat.category}
-              </span>
-            )}
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
 
       {/* Main Chat */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+      <div style={styles.mainChat}>
         {/* Header */}
-        <div style={{ padding: "10px", borderBottom: "1px solid #ddd", display: "flex", alignItems: "center", gap: "10px" }}>
-          <button
-            onClick={() => setShowSidebar(!showSidebar)}
-            style={{
-              background: "transparent",
-              border: "none",
-              cursor: "pointer",
-              fontSize: "18px",
-            }}
-          >
+        <div style={styles.header}>
+          <button onClick={() => setShowSidebar(!showSidebar)} style={styles.toggleButton}>
             ☰
           </button>
-          <div style={{ flex: 1 }}>
-            <h3 style={{ margin: 0 }}>
+          <div style={styles.headerInfo}>
+            <h3 style={styles.headerTitle}>
               {conversationTitle || "Nuevo Chat"}
             </h3>
             {conversationCategory && (
               <span style={{
-                fontSize: "11px",
-                padding: "2px 8px",
+                ...styles.categoryBadge,
                 background: getCategoryColor(conversationCategory),
-                borderRadius: "4px",
-                color: "#fff",
-                marginTop: "4px",
-                display: "inline-block",
+                marginTop: '6px',
               }}>
                 {conversationCategory}
               </span>
@@ -387,57 +352,52 @@ export default function ChatWidget() {
         </div>
 
         {/* Messages */}
-        <div
-          style={{
-            flex: 1,
-            overflowY: "auto",
-            padding: "12px",
-            background: "#fafafa",
-          }}
-        >
+        <div style={styles.messagesArea}>
           {messages.map((m, i) => (
             <div
               key={i}
               style={{
-                textAlign: m.from === "user" ? "right" : "left",
-                margin: "8px 0",
+                textAlign: m.from === 'user' ? 'right' : 'left',
+                margin: '12px 0',
+                animation: 'slideIn 0.3s ease-out',
               }}
             >
-              <span
-                style={{
-                  display: "inline-block",
-                  padding: "8px 12px",
-                  borderRadius: 12,
-                  background: m.from === "user" ? "#cfe9ff" : "#ececec",
-                  maxWidth: "70%",
-                  wordWrap: "break-word",
-                }}
-              >
+              <div style={{
+                ...styles.messageBubble,
+                background: m.from === 'user' 
+                  ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+                  : 'rgba(255, 255, 255, 0.1)',
+                color: m.from === 'user' ? '#fff' : '#e0e0e0',
+                border: m.from === 'user' 
+                  ? '1px solid rgba(102, 126, 234, 0.3)'
+                  : '1px solid rgba(255, 255, 255, 0.2)',
+              }}>
                 {m.text}
-              </span>
+              </div>
             </div>
           ))}
         </div>
 
-        {/* Input */}
-        <div style={{ padding: "12px", borderTop: "1px solid #ddd", display: "flex", gap: "8px" }}>
+        {/* Input Area */}
+        <div style={styles.inputArea}>
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyPress={(e) => e.key === "Enter" && handleSend()}
+            onKeyPress={(e) => e.key === 'Enter' && handleSend()}
             placeholder="Escribe tu mensaje..."
-            style={{ flex: 1, padding: "8px", borderRadius: "6px", border: "1px solid #ddd" }}
+            style={styles.input}
           />
-          <button onClick={handleSend} style={{ padding: "8px 16px", background: "#0066cc", color: "white", border: "none", borderRadius: "6px", cursor: "pointer" }}>
-            Enviar
+          <button onClick={handleSend} style={styles.sendButton}>
+            →
           </button>
-          <button onClick={handleManualEscalation} style={{ padding: "8px 16px", background: "#ff6b6b", color: "white", border: "none", borderRadius: "6px", cursor: "pointer" }}>
-            Escalar
+          <button onClick={handleManualEscalation} style={styles.escalateButton}>
+            🚨 Escalar
           </button>
         </div>
 
+        {/* Escalation Alert */}
         {escalated && (
-          <div style={{ padding: "8px 12px", background: "#fff3cd", color: "#856404", textAlign: "center", fontSize: "14px" }}>
+          <div style={styles.escalationAlert}>
             ✅ Caso escalado (revisa Bandeja)
           </div>
         )}
@@ -445,3 +405,214 @@ export default function ChatWidget() {
     </div>
   );
 }
+
+const styles = {
+  container: {
+    display: 'flex',
+    gap: '15px',
+    height: '700px',
+    maxWidth: '1400px',
+    margin: '0 auto',
+  },
+
+  // SIDEBAR
+  sidebar: {
+    background: 'rgba(15, 12, 41, 0.8)',
+    backdropFilter: 'blur(10px)',
+    border: '1px solid rgba(102, 126, 234, 0.2)',
+    borderRadius: '15px',
+    overflowY: 'auto',
+    transition: 'all 0.3s ease',
+    display: 'flex',
+    flexDirection: 'column',
+  },
+
+  newChatButton: {
+    width: '100%',
+    padding: '12px 16px',
+    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+    color: 'white',
+    border: 'none',
+    borderRadius: '10px',
+    fontSize: '14px',
+    fontWeight: '600',
+    cursor: 'pointer',
+    marginBottom: '20px',
+    transition: 'all 0.3s ease',
+    boxShadow: '0 4px 12px rgba(102, 126, 234, 0.3)',
+  },
+
+  historyLabel: {
+    fontSize: '12px',
+    color: 'rgba(255, 255, 255, 0.5)',
+    marginBottom: '12px',
+    textTransform: 'uppercase',
+    letterSpacing: '1px',
+  },
+
+  historyList: {
+    flex: 1,
+    overflowY: 'auto',
+  },
+
+  historyItem: {
+    padding: '12px',
+    borderRadius: '10px',
+    marginBottom: '8px',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease',
+    border: '1px solid rgba(102, 126, 234, 0.1)',
+  },
+
+  historyItemHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: '6px',
+  },
+
+  historyItemTitle: {
+    fontSize: '13px',
+    color: '#fff',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    flex: 1,
+  },
+
+  deleteButton: {
+    background: 'transparent',
+    color: 'rgba(255, 255, 255, 0.4)',
+    border: 'none',
+    cursor: 'pointer',
+    fontSize: '14px',
+    marginLeft: '8px',
+    transition: 'color 0.2s ease',
+  },
+
+  categoryBadge: {
+    fontSize: '10px',
+    padding: '4px 10px',
+    borderRadius: '6px',
+    display: 'inline-block',
+    color: '#fff',
+    fontWeight: '600',
+  },
+
+  // MAIN CHAT
+  mainChat: {
+    flex: 1,
+    display: 'flex',
+    flexDirection: 'column',
+    background: 'rgba(15, 12, 41, 0.8)',
+    backdropFilter: 'blur(10px)',
+    border: '1px solid rgba(102, 126, 234, 0.2)',
+    borderRadius: '15px',
+    overflow: 'hidden',
+    boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)',
+  },
+
+  header: {
+    padding: '16px 20px',
+    borderBottom: '1px solid rgba(102, 126, 234, 0.2)',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '15px',
+    background: 'rgba(15, 12, 41, 0.5)',
+  },
+
+  toggleButton: {
+    background: 'transparent',
+    border: 'none',
+    color: '#fff',
+    fontSize: '20px',
+    cursor: 'pointer',
+    padding: '5px 10px',
+    borderRadius: '6px',
+    transition: 'all 0.2s ease',
+  },
+
+  headerInfo: {
+    flex: 1,
+  },
+
+  headerTitle: {
+    margin: 0,
+    fontSize: '18px',
+    color: '#fff',
+    fontWeight: '600',
+  },
+
+  messagesArea: {
+    flex: 1,
+    overflowY: 'auto',
+    padding: '20px',
+    display: 'flex',
+    flexDirection: 'column',
+  },
+
+  messageBubble: {
+    display: 'inline-block',
+    padding: '12px 18px',
+    borderRadius: '18px',
+    maxWidth: '70%',
+    wordWrap: 'break-word',
+    backdropFilter: 'blur(10px)',
+    transition: 'all 0.3s ease',
+  },
+
+  inputArea: {
+    display: 'flex',
+    gap: '10px',
+    padding: '20px',
+    borderTop: '1px solid rgba(102, 126, 234, 0.2)',
+    background: 'rgba(15, 12, 41, 0.5)',
+  },
+
+  input: {
+    flex: 1,
+    padding: '12px 20px',
+    border: '1px solid rgba(102, 126, 234, 0.3)',
+    borderRadius: '25px',
+    background: 'rgba(255, 255, 255, 0.1)',
+    color: '#fff',
+    fontSize: '14px',
+    outline: 'none',
+    transition: 'all 0.3s ease',
+  },
+
+  sendButton: {
+    padding: '12px 24px',
+    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+    border: 'none',
+    borderRadius: '25px',
+    color: '#fff',
+    fontSize: '18px',
+    cursor: 'pointer',
+    transition: 'all 0.3s ease',
+    fontWeight: 'bold',
+  },
+
+  escalateButton: {
+    padding: '12px 20px',
+    background: 'linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%)',
+    border: 'none',
+    borderRadius: '25px',
+    color: '#fff',
+    fontSize: '13px',
+    fontWeight: '600',
+    cursor: 'pointer',
+    transition: 'all 0.3s ease',
+    whiteSpace: 'nowrap',
+  },
+
+  escalationAlert: {
+    padding: '12px 20px',
+    background: 'rgba(76, 175, 80, 0.2)',
+    borderTop: '1px solid rgba(76, 175, 80, 0.3)',
+    color: '#4caf50',
+    textAlign: 'center',
+    fontSize: '14px',
+    fontWeight: '600',
+  },
+};
