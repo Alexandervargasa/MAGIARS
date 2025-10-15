@@ -6,11 +6,14 @@ const jwt = require("jsonwebtoken");
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 require("dotenv").config();
 
+// Importar funciones de base de datos
+const db = require('./database');
+
 const app = express();
 app.use(cors());
 app.use(bodyParser.json());
 
-// Variables de entorno (agrégalas en .env)
+// Variables de entorno
 const META_APP_ID = process.env.META_APP_ID;
 const META_APP_SECRET = process.env.META_APP_SECRET;
 const META_REDIRECT_URI = process.env.META_REDIRECT_URI || "http://localhost:5173/auth/callback";
@@ -20,11 +23,18 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 // Inicializar cliente de Gemini
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
 
-// Almacenar usuarios (en producción usa base de datos)
-let users = [];
-let conversations = [];
+// Inicializar base de datos al arrancar
+db.initDatabase().catch(err => {
+  console.error('Error al inicializar base de datos:', err);
+  process.exit(1);
+});
 
-// Health check
+// Health check principal
+app.get("/", (req, res) => {
+  res.json({ message: "✅ MAGIARS Backend conectado correctamente" });
+});
+
+// Health check API
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok" });
 });
@@ -83,21 +93,13 @@ app.post("/api/auth/meta-callback", async (req, res) => {
 
     const { id, name, email, picture } = userResponse.data;
 
-    // Guardar o actualizar usuario
-    let user = users.find(u => u.metaId === id);
-    if (!user) {
-      user = {
-        id: Date.now().toString(),
-        metaId: id,
-        name: name,
-        email: email,
-        avatar: picture?.data?.url || null,
-        loginDate: new Date(),
-      };
-      users.push(user);
-    } else {
-      user.loginDate = new Date();
-    }
+    // Guardar o actualizar usuario en SQLite
+    const user = await db.createOrUpdateUser({
+      metaId: id,
+      name: name,
+      email: email,
+      avatar: picture?.data?.url || null,
+    });
 
     // Generar JWT
     const token = jwt.sign({ userId: user.id, metaId: id }, JWT_SECRET, {
@@ -125,7 +127,7 @@ app.post("/api/auth/meta-callback", async (req, res) => {
 });
 
 // 3. Verificar token JWT
-app.get("/api/auth/verify", (req, res) => {
+app.get("/api/auth/verify", async (req, res) => {
   const token = req.headers.authorization?.split(" ")[1];
 
   if (!token) {
@@ -134,7 +136,7 @@ app.get("/api/auth/verify", (req, res) => {
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
-    const user = users.find(u => u.id === decoded.userId);
+    const user = await db.getUserById(decoded.userId);
 
     if (!user) {
       return res.status(404).json({ error: "User not found" });
@@ -152,7 +154,6 @@ app.post("/api/auth/logout", (req, res) => {
 });
 
 // 5. Data Deletion Request (Requerido por Meta)
-// Acepta GET y POST
 app.get("/api/auth/data-deletion", (req, res) => {
   res.status(200).json({
     url: "https://jewel-unmelted-reanna.ngrok-free.dev/data-deletion",
@@ -160,17 +161,17 @@ app.get("/api/auth/data-deletion", (req, res) => {
   });
 });
 
-app.post("/api/auth/data-deletion", (req, res) => {
+app.post("/api/auth/data-deletion", async (req, res) => {
   const { user_id, signed_request } = req.body;
 
-  // Buscar y eliminar usuario
-  const userIndex = users.findIndex(u => u.metaId === user_id);
-  if (userIndex !== -1) {
-    users.splice(userIndex, 1);
-    console.log(`Usuario ${user_id} eliminado`);
+  try {
+    // Eliminar usuario de la base de datos (CASCADE eliminará todo relacionado)
+    await db.deleteUser(user_id);
+    console.log(`Usuario ${user_id} eliminado de la base de datos`);
+  } catch (error) {
+    console.error('Error al eliminar usuario:', error);
   }
 
-  // Meta espera esta respuesta específica - DEBE ser 200 OK
   res.status(200).json({
     url: "https://jewel-unmelted-reanna.ngrok-free.dev/data-deletion",
     confirmation_code: `deletion_${Date.now()}`,
@@ -178,49 +179,103 @@ app.post("/api/auth/data-deletion", (req, res) => {
 });
 
 // ============================================================
-// RUTAS EXISTENTES
+// RUTAS DE INTEGRACIONES
 // ============================================================
 
-// Alerts
-app.post("/api/alerts", (req, res) => {
-  console.log("Alert received:", req.body);
-  res.json({ success: true });
+app.get("/api/integrations", async (req, res) => {
+  const userId = req.query.userId;
+  
+  if (!userId) {
+    return res.status(400).json({ error: "userId is required" });
+  }
+  
+  try {
+    const integrations = await db.getIntegrationsByUserId(userId);
+    res.json(integrations);
+  } catch (error) {
+    console.error('Error al obtener integraciones:', error);
+    res.status(500).json({ error: 'Error al obtener integraciones' });
+  }
 });
 
-// Integrations
-let integrations = [];
-app.get("/api/integrations", (req, res) => {
-  res.json(integrations);
+app.post("/api/integrations", async (req, res) => {
+  try {
+    const integration = await db.createIntegration(req.body);
+    res.json({ success: true, integration });
+  } catch (error) {
+    console.error('Error al crear integración:', error);
+    res.status(500).json({ error: 'Error al crear integración' });
+  }
 });
-app.post("/api/integrations", (req, res) => {
-  integrations.push(req.body);
-  res.json({ success: true });
-});
+
 app.post("/api/integrations/test", (req, res) => {
   res.json({ success: true, message: "Connection test passed" });
 });
 
-// Escalations
-let escalations = [];
-let counter = 1;
-app.get("/api/escalations", (req, res) => {
-  res.json(escalations);
+app.delete("/api/integrations/:id", async (req, res) => {
+  try {
+    await db.deleteIntegration(req.params.id);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error al eliminar integración:', error);
+    res.status(500).json({ error: 'Error al eliminar integración' });
+  }
 });
-app.post("/api/escalations", (req, res) => {
-  const esc = { id: counter++, ...req.body, status: "open", replies: [] };
-  escalations.push(esc);
-  res.json(esc);
+
+// ============================================================
+// RUTAS DE ESCALACIONES
+// ============================================================
+
+app.get("/api/escalations", async (req, res) => {
+  try {
+    const filters = {};
+    if (req.query.userId) filters.userId = req.query.userId;
+    if (req.query.status) filters.status = req.query.status;
+    
+    const escalations = await db.getEscalations(filters);
+    res.json(escalations);
+  } catch (error) {
+    console.error('Error al obtener escalaciones:', error);
+    res.status(500).json({ error: 'Error al obtener escalaciones' });
+  }
 });
-app.post("/api/escalations/:id/reply", (req, res) => {
-  const esc = escalations.find(e => e.id == req.params.id);
-  if (!esc) return res.status(404).json({ error: "Not found" });
-  esc.replies.push(req.body);
-  res.json({ success: true });
+
+app.post("/api/escalations", async (req, res) => {
+  try {
+    const escalation = await db.createEscalation(req.body);
+    res.json(escalation);
+  } catch (error) {
+    console.error('Error al crear escalación:', error);
+    res.status(500).json({ error: 'Error al crear escalación' });
+  }
 });
-app.post("/api/escalations/:id/resolve", (req, res) => {
-  const esc = escalations.find(e => e.id == req.params.id);
-  if (!esc) return res.status(404).json({ error: "Not found" });
-  esc.status = "resolved";
+
+app.post("/api/escalations/:id/reply", async (req, res) => {
+  try {
+    await db.addEscalationReply(req.params.id, req.body.message, req.body.sender);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error al agregar respuesta:', error);
+    res.status(500).json({ error: 'Error al agregar respuesta' });
+  }
+});
+
+app.post("/api/escalations/:id/resolve", async (req, res) => {
+  try {
+    await db.resolveEscalation(req.params.id);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error al resolver escalación:', error);
+    res.status(500).json({ error: 'Error al resolver escalación' });
+  }
+});
+
+// ============================================================
+// RUTAS DE ALERTAS
+// ============================================================
+
+app.post("/api/alerts", (req, res) => {
+  console.log("Alert received:", req.body);
   res.json({ success: true });
 });
 
@@ -228,14 +283,12 @@ app.post("/api/escalations/:id/resolve", (req, res) => {
 // CHATBOT CON GEMINI
 // ============================================================
 
-// Función para detectar si requiere escalación
 function requiresEscalation(message) {
   const escalationKeywords = ["humano", "asesor", "persona", "hablar con humano", "atención humana"];
   const lowerMessage = message.toLowerCase();
   return escalationKeywords.some(keyword => lowerMessage.includes(keyword));
 }
 
-// Función para obtener respuesta de Gemini
 async function getGeminiResponse(message, conversationHistory = []) {
   try {
     if (!GEMINI_API_KEY) {
@@ -243,12 +296,8 @@ async function getGeminiResponse(message, conversationHistory = []) {
       return "Gemini no está configurado. Por favor, configura tu API key.";
     }
 
-    console.log("Llamando a Gemini con mensaje:", message);
-
-    // Obtener el modelo Gemini 2.5 Flash
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-    // Construir el prompt con el contexto de MAGIARS
     let prompt = `Eres el asistente inteligente de MAGIARS, un chatbot avanzado para Instagram basado en inteligencia artificial.
 
 MAGIARS es una plataforma integral que:
@@ -267,7 +316,6 @@ Tu función es ayudar a usuarios y empresas que gestionan redes sociales, ofreci
 Responde de manera profesional, concisa y orientada a resultados. Usa un tono amable pero experto en marketing digital y automatización.
 \n\n`;
     
-    // Agregar historial de conversación si existe
     if (conversationHistory.length > 0) {
       prompt += "Historial de la conversación:\n";
       conversationHistory.forEach(msg => {
@@ -282,12 +330,10 @@ Responde de manera profesional, concisa y orientada a resultados. Usa un tono am
     
     prompt += `Usuario: ${message}\nAsistente:`;
 
-    // Generar respuesta
     const result = await model.generateContent(prompt);
     const response = await result.response;
     const text = response.text();
 
-    console.log("Respuesta de Gemini:", text);
     return text;
   } catch (error) {
     console.error("Error con Gemini:", error.message);
@@ -295,7 +341,6 @@ Responde de manera profesional, concisa y orientada a resultados. Usa un tono am
   }
 }
 
-// Función para categorizar conversación con Gemini
 async function categorizeConversation(conversationHistory) {
   try {
     if (!GEMINI_API_KEY) {
@@ -304,7 +349,6 @@ async function categorizeConversation(conversationHistory) {
 
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-    // Construir resumen de la conversación
     let conversationText = "";
     conversationHistory.forEach(msg => {
       if (msg.role === "user") {
@@ -334,7 +378,6 @@ Categoría:`;
     const response = await result.response;
     const category = response.text().trim();
 
-    console.log("Categoría detectada:", category);
     return category;
   } catch (error) {
     console.error("Error al categorizar:", error.message);
@@ -342,7 +385,6 @@ Categoría:`;
   }
 }
 
-// Función para generar título de conversación con Gemini
 async function generateConversationTitle(firstMessage) {
   try {
     if (!GEMINI_API_KEY) {
@@ -361,18 +403,15 @@ Título:`;
     const response = await result.response;
     let title = response.text().trim();
     
-    // Limpiar el título de caracteres no deseados
     title = title.replace(/['"`.]/g, '').trim();
     
-    // Asegurar que no exceda 40 caracteres
     if (title.length > 40) {
       title = title.substring(0, 37) + "...";
     }
 
-    console.log("✅ Título generado:", title);
     return title;
   } catch (error) {
-    console.error("❌ Error al generar título:", error.message);
+    console.error("Error al generar título:", error.message);
     return firstMessage.substring(0, 30) + (firstMessage.length > 30 ? "..." : "");
   }
 }
@@ -386,47 +425,63 @@ app.post("/api/messages", async (req, res) => {
   }
 
   try {
-    // Verificar si requiere escalación
-    if (requiresEscalation(message)) {
-      return res.json({ 
-        reply: "Entendido. Te conectaremos con un agente humano pronto.", 
-        requiresEscalation: true 
-      });
+    let currentConversationId = conversationId;
+    
+    // Si es el primer mensaje, crear conversación
+    if (isFirstMessage && userId) {
+      currentConversationId = `conv-${Date.now()}`;
+      const title = await generateConversationTitle(message);
+      await db.createConversation(userId, currentConversationId, title);
     }
     
-    // Generar título si es el primer mensaje
-    let title = null;
-    if (isFirstMessage) {
-      console.log("🔍 Detectado primer mensaje, generando título...");
-      title = await generateConversationTitle(message);
-      console.log("📝 Título a enviar:", title);
+    // Guardar mensaje del usuario
+    if (currentConversationId) {
+      await db.saveMessage(currentConversationId, 'user', message);
+    }
+    
+    // Verificar si requiere escalación
+    if (requiresEscalation(message)) {
+      const reply = "Entendido. Te conectaremos con un agente humano pronto.";
+      
+      if (currentConversationId) {
+        await db.saveMessage(currentConversationId, 'assistant', reply);
+      }
+      
+      return res.json({ 
+        reply, 
+        requiresEscalation: true,
+        conversationId: currentConversationId
+      });
     }
     
     // Usar Gemini para responder
     const reply = await getGeminiResponse(message, conversationHistory || []);
     
-    console.log("Enviando respuesta al frontend:", reply);
+    // Guardar respuesta del bot
+    if (currentConversationId) {
+      await db.saveMessage(currentConversationId, 'assistant', reply);
+    }
     
-    // Categorizar la conversación si tiene más de 2 mensajes
+    // Categorizar si tiene suficientes mensajes
     let category = null;
     if (conversationHistory && conversationHistory.length >= 2) {
-      category = await categorizeConversation([...conversationHistory, { role: "user", content: message }, { role: "assistant", content: reply }]);
-    }
-    
-    // Guardar la conversación
-    if (userId) {
-      conversations.push({
-        id: Date.now().toString(),
-        userId: userId,
-        conversationId: conversationId || "conv-" + Date.now(),
-        userMessage: message,
-        botReply: reply,
-        category: category,
-        timestamp: new Date().toISOString(),
-      });
+      category = await categorizeConversation([
+        ...conversationHistory, 
+        { role: "user", content: message }, 
+        { role: "assistant", content: reply }
+      ]);
+      
+      if (category && currentConversationId) {
+        await db.updateConversationCategory(currentConversationId, category);
+      }
     }
 
-    return res.json({ reply, requiresEscalation: false, category, title });
+    return res.json({ 
+      reply, 
+      requiresEscalation: false, 
+      category,
+      conversationId: currentConversationId
+    });
   } catch (error) {
     console.error("Error procesando mensaje:", error);
     return res.status(500).json({ error: "Error al procesar tu mensaje" });
@@ -434,13 +489,48 @@ app.post("/api/messages", async (req, res) => {
 });
 
 // Obtener historial de conversaciones
-app.get("/api/conversations/:userId", (req, res) => {
-  const { userId } = req.params;
-  const userConversations = conversations.filter(c => c.userId === userId);
-  res.json(userConversations);
+app.get("/api/conversations/:userId", async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const conversations = await db.getConversationsByUserId(userId);
+    res.json(conversations);
+  } catch (error) {
+    console.error('Error al obtener conversaciones:', error);
+    res.status(500).json({ error: 'Error al obtener conversaciones' });
+  }
+});
+
+// Obtener mensajes de una conversación específica
+app.get("/api/conversations/:conversationId/messages", async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const messages = await db.getMessagesByConversationId(conversationId);
+    res.json(messages);
+  } catch (error) {
+    console.error('Error al obtener mensajes:', error);
+    res.status(500).json({ error: 'Error al obtener mensajes' });
+  }
+});
+
+// Eliminar conversación
+app.delete("/api/conversations/:conversationId", async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const database = await db.initDatabase();
+    
+    // SQLite con CASCADE eliminará automáticamente los mensajes relacionados
+    await database.run('DELETE FROM conversations WHERE conversationId = ?', conversationId);
+    
+    console.log(`🗑️ Conversación ${conversationId} eliminada`);
+    res.json({ success: true, message: "Conversación eliminada correctamente" });
+  } catch (error) {
+    console.error('❌ Error al eliminar conversación:', error);
+    res.status(500).json({ error: 'Error al eliminar conversación' });
+  }
 });
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
-  console.log(`MAGIARS backend listening on http://localhost:${PORT}`);
+  console.log(`🚀 MAGIARS backend listening on http://localhost:${PORT}`);
+  console.log(`📊 SQLite database: magiars.db`);
 });

@@ -71,8 +71,8 @@ const api = {
   // ============================================================
   // INTEGRATIONS
   // ============================================================
-  getIntegrations() {
-    return request("/integrations");
+  getIntegrations(userId) {
+    return request(`/integrations?userId=${userId}`);
   },
 
   saveIntegrations(data) {
@@ -86,11 +86,22 @@ const api = {
     return request("/integrations/test", { method: "POST" });
   },
 
+  deleteIntegration(id) {
+    return request(`/integrations/${id}`, {
+      method: "DELETE",
+    });
+  },
+
   // ============================================================
   // ESCALATIONS (HU-03 / HU-04)
   // ============================================================
-  listEscalations() {
-    return request("/escalations");
+  listEscalations(filters = {}) {
+    const params = new URLSearchParams();
+    if (filters.userId) params.append("userId", filters.userId);
+    if (filters.status) params.append("status", filters.status);
+    
+    const queryString = params.toString();
+    return request(`/escalations${queryString ? `?${queryString}` : ""}`);
   },
 
   createEscalation(payload) {
@@ -100,10 +111,10 @@ const api = {
     });
   },
 
-  replyEscalation(id, text) {
+  replyEscalation(id, message, sender) {
     return request(`/escalations/${id}/reply`, {
       method: "POST",
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ message, sender }),
     });
   },
 
@@ -112,7 +123,7 @@ const api = {
   },
 
   // ============================================================
-  // CHATBOT (HU-01 / HU-02) - ACTUALIZADO PARA GEMINI
+  // CHATBOT Y CONVERSACIONES
   // ============================================================
   sendMessage(message, userId, conversationId, conversationHistory = [], isFirstMessage = false) {
     return request("/messages", {
@@ -127,8 +138,21 @@ const api = {
     });
   },
 
+  // Obtener todas las conversaciones de un usuario
   getConversations(userId) {
     return request(`/conversations/${userId}`);
+  },
+
+  // Obtener mensajes de una conversación específica
+  getConversationMessages(conversationId) {
+    return request(`/conversations/${conversationId}/messages`);
+  },
+
+  // Eliminar una conversación
+  deleteConversation(conversationId) {
+    return request(`/conversations/${conversationId}`, {
+      method: "DELETE",
+    });
   },
 };
 

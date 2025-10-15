@@ -1,5 +1,5 @@
 // src/components/ChatWidget.jsx
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import api from "../services/api.js";
 
 export default function ChatWidget() {
@@ -9,25 +9,23 @@ export default function ChatWidget() {
   const [input, setInput] = useState("");
   const [escalated, setEscalated] = useState(false);
   const [userName, setUserName] = useState("");
+  const [userId, setUserId] = useState(null);
   const [conversationId, setConversationId] = useState("");
   const [conversationTitle, setConversationTitle] = useState("");
   const [conversationCategory, setConversationCategory] = useState(null);
   const [chatHistory, setChatHistory] = useState([]);
   const [showSidebar, setShowSidebar] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
+  const messagesEndRef = useRef(null);
 
-  // Inicializar conversación al cargar
-   useEffect(() => {
-    initializeNewChat();
-    loadChatHistory();
-  }, []);
-
-  // Obtener el nombre del usuario autenticado
+  // Obtener userId al cargar
   useEffect(() => {
     const userStr = localStorage.getItem("user");
     if (userStr) {
       try {
         const user = JSON.parse(userStr);
         setUserName(user.name || "Usuario");
+        setUserId(user.id);
       } catch (e) {
         console.error("Error parsing user:", e);
         setUserName("Usuario");
@@ -35,118 +33,148 @@ export default function ChatWidget() {
     }
   }, []);
 
+  // Cargar historial de conversaciones cuando tenemos userId
+  useEffect(() => {
+    if (userId) {
+      loadChatHistory();
+    }
+  }, [userId]);
+
+  // Auto-scroll al último mensaje
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  };
+
   const initializeNewChat = () => {
     const newConvId = "conv-" + Date.now();
     setConversationId(newConvId);
-    setConversationTitle("");
+    setConversationTitle("Nuevo Chat");
     setConversationCategory(null);
     setMessages([
-      { from: "bot", text: "¡Hola! Soy el bot de MAGIARS 🤖. Escribe tu mensaje." },
+      { from: "bot", text: "¡Hola! Soy el asistente de MAGIARS 🤖. ¿En qué puedo ayudarte?" },
     ]);
     setEscalated(false);
     setInput("");
   };
 
-  const loadChatHistory = () => {
-    const history = localStorage.getItem("chatHistory");
-    if (history) {
-      try {
-        setChatHistory(JSON.parse(history));
-      } catch (e) {
-        console.error("Error loading chat history:", e);
-      }
-    }
-  };
+  const loadChatHistory = async () => {
+    if (!userId) return;
 
-  const saveChatToHistory = () => {
-    if (messages.length > 1 || conversationTitle) {
-      const updatedHistory = chatHistory.filter(c => c.id !== conversationId);
+    try {
+      setIsLoading(true);
+      const conversations = await api.getConversations(userId);
       
-      updatedHistory.unshift({
-        id: conversationId,
-        title: conversationTitle || "Chat sin título",
-        messages: messages,
-        category: conversationCategory,
-        timestamp: new Date().toISOString(),
-      });
-      setChatHistory(updatedHistory.slice(0, 20));
-      localStorage.setItem("chatHistory", JSON.stringify(updatedHistory.slice(0, 20)));
+      // Mapear conversaciones con formato adecuado
+      const formattedHistory = conversations.map(conv => ({
+        id: conv.conversationId,
+        title: conv.title || "Chat sin título",
+        category: conv.category,
+        timestamp: conv.updatedAt || conv.createdAt,
+        // No cargamos mensajes aquí, solo metadata
+      }));
+
+      setChatHistory(formattedHistory);
+    } catch (error) {
+      console.error("Error cargando historial:", error);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const updateCurrentChatInHistory = (title, category) => {
-    const existingChat = chatHistory.find(c => c.id === conversationId);
-    
-    if (existingChat) {
-      // Actualizar chat existente
-      const updatedHistory = chatHistory.map(chat => 
-        chat.id === conversationId 
-          ? { 
-              ...chat, 
-              title: title || chat.title,
-              category: category || chat.category,
-              messages: messages 
-            }
-          : chat
-      );
-      setChatHistory(updatedHistory);
-      localStorage.setItem("chatHistory", JSON.stringify(updatedHistory));
-    } else {
-      // Crear nuevo chat en el historial
-      const newChat = {
-        id: conversationId,
-        title: title || "Chat sin título",
-        messages: messages,
-        category: category || null,
-        timestamp: new Date().toISOString(),
-      };
-      const updatedHistory = [newChat, ...chatHistory].slice(0, 20);
-      setChatHistory(updatedHistory);
-      localStorage.setItem("chatHistory", JSON.stringify(updatedHistory));
+  const loadChat = async (chat) => {
+    if (!chat.id) return;
+
+    try {
+      setIsLoading(true);
+      
+      // Cargar mensajes de esta conversación desde el backend
+      const messagesData = await api.getConversationMessages(chat.id);
+      
+      // Formatear mensajes para el componente
+      const formattedMessages = [
+        { from: "bot", text: "¡Hola! Soy el asistente de MAGIARS 🤖." },
+        ...messagesData.map(msg => ({
+          from: msg.role === "user" ? "user" : "bot",
+          text: msg.content,
+        }))
+      ];
+
+      setConversationId(chat.id);
+      setConversationTitle(chat.title);
+      setConversationCategory(chat.category);
+      setMessages(formattedMessages);
+      setEscalated(false);
+    } catch (error) {
+      console.error("Error cargando conversación:", error);
+      // Si falla, cargar vacío
+      setConversationId(chat.id);
+      setConversationTitle(chat.title);
+      setConversationCategory(chat.category);
+      setMessages([
+        { from: "bot", text: "¡Hola! Soy el asistente de MAGIARS 🤖." },
+      ]);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const loadChat = (chat) => {
-    setConversationId(chat.id);
-    setConversationTitle(chat.title);
-    setConversationCategory(chat.category);
-    setMessages(chat.messages);
-    setEscalated(false);
-  };
+  const deleteChat = async (chatId) => {
+    try {
+      // Mostrar confirmación
+      if (!window.confirm('¿Estás seguro de que quieres eliminar esta conversación?')) {
+        return;
+      }
 
-  const deleteChat = (chatId) => {
-    const updated = chatHistory.filter(c => c.id !== chatId);
-    setChatHistory(updated);
-    localStorage.setItem("chatHistory", JSON.stringify(updated));
+      // Eliminar de la base de datos
+      await api.deleteConversation(chatId);
+      
+      // Eliminar del estado local
+      const updated = chatHistory.filter(c => c.id !== chatId);
+      setChatHistory(updated);
+      
+      // Si es la conversación actual, iniciar nueva
+      if (conversationId === chatId) {
+        initializeNewChat();
+      }
+
+      console.log(`✅ Conversación ${chatId} eliminada correctamente`);
+    } catch (error) {
+      console.error("❌ Error eliminando chat:", error);
+      alert("Error al eliminar la conversación. Por favor, intenta de nuevo.");
+    }
   };
 
   const push = (m) => setMessages((prev) => [...prev, m]);
 
   const handleSend = async () => {
-    if (!input.trim()) return;
+    if (!input.trim() || !userId) return;
 
     const userMessage = input;
-    const isFirstMessage = messages.length === 1; // Solo el mensaje de bienvenida
+    const isFirstMessage = messages.length === 1; // Solo mensaje de bienvenida
     
     push({ from: "user", text: userMessage });
     setInput("");
 
     // Mostrar "Procesando..."
-    push({ from: "bot", text: "Procesando..." });
+    push({ from: "bot", text: "⏳ Procesando..." });
 
     try {
-      const userStr = localStorage.getItem("user");
-      const userId = userStr ? JSON.parse(userStr).id : null;
-
-      // Construir historial de conversación para mantener contexto
+      // Construir historial para mantener contexto (sin mensaje de bienvenida)
       const conversationHistory = messages
-        .filter(m => m.text !== "Procesando..." && m.text !== "¡Hola! Soy el bot de MAGIARS 🤖. Escribe tu mensaje.")
+        .filter(m => 
+          m.text !== "⏳ Procesando..." && 
+          !m.text.includes("¡Hola! Soy el asistente de MAGIARS")
+        )
         .map(m => ({
           role: m.from === "user" ? "user" : "assistant",
           content: m.text
         }));
 
-      // Llamar a la API con Gemini
+      // Llamar al backend
       const response = await api.sendMessage(
         userMessage, 
         userId, 
@@ -155,95 +183,103 @@ export default function ChatWidget() {
         isFirstMessage
       );
 
-      console.log("📥 Respuesta recibida:", response);
-      console.log("🆕 Es primer mensaje?", isFirstMessage);
-      console.log("📋 Título recibido:", response.title);
+      // Remover "Procesando..."
+      setMessages(prev => prev.slice(0, -1));
 
-      // Remover el "Procesando..."
-      setMessages(prev => {
-        const updated = [...prev];
-        updated.pop();
-        return updated;
-      });
-
-      // Verificar si requiere escalación
+      // Verificar escalación
       if (response.requiresEscalation) {
         push({ from: "bot", text: response.reply });
         
-        // Crear la escalación automáticamente
         try {
           const payload = {
-            channel: "instagram",
-            userHandle: userName,
+            userId: userId,
             conversationId: conversationId,
-            message: userMessage,
+            priority: "high",
+            issue: userMessage,
           };
-          const created = await api.createEscalation(payload);
-          await api.alert({
-            type: "escalation",
-            id: created.id,
-            at: new Date().toISOString(),
-          });
+          await api.createEscalation(payload);
           setEscalated(true);
         } catch (e) {
           console.error("Error al escalar:", e);
         }
       } else {
-        // Mostrar respuesta de Gemini
+        // Mostrar respuesta
         push({ from: "bot", text: response.reply });
         
-        // Si es el primer mensaje y viene un título, usarlo
+        // Actualizar título si es primer mensaje
         if (isFirstMessage && response.title) {
-          console.log("✅ Actualizando título a:", response.title);
           setConversationTitle(response.title);
-          // Agregar inmediatamente al historial
-          updateCurrentChatInHistory(response.title, null);
+          
+          // Actualizar historial con nuevo título
+          setChatHistory(prev => {
+            const exists = prev.find(c => c.id === conversationId);
+            if (exists) {
+              return prev.map(c => 
+                c.id === conversationId 
+                  ? { ...c, title: response.title }
+                  : c
+              );
+            } else {
+              return [{
+                id: conversationId,
+                title: response.title,
+                category: null,
+                timestamp: new Date().toISOString(),
+              }, ...prev];
+            }
+          });
         }
-        // Si viene una categoría, actualizar
-        else if (response.category) {
+        
+        // Actualizar categoría si viene
+        if (response.category) {
           setConversationCategory(response.category);
-          updateCurrentChatInHistory(conversationTitle, response.category);
-        } else {
-          // Actualizar solo los mensajes si no hay categoría nueva
-          updateCurrentChatInHistory(null, null);
+          
+          setChatHistory(prev => 
+            prev.map(c => 
+              c.id === conversationId 
+                ? { ...c, category: response.category }
+                : c
+            )
+          );
+        }
+
+        // Si hay un nuevo conversationId (primera vez)
+        if (response.conversationId && !conversationId) {
+          setConversationId(response.conversationId);
         }
       }
-    } catch (e) {
-      console.error("Error al enviar mensaje:", e);
+    } catch (error) {
+      console.error("Error al enviar mensaje:", error);
       
-      // Remover el "Procesando..."
-      setMessages(prev => {
-        const updated = [...prev];
-        updated.pop();
-        return updated;
+      // Remover "Procesando..."
+      setMessages(prev => prev.slice(0, -1));
+      
+      push({ 
+        from: "bot", 
+        text: "Lo siento, hubo un error al procesar tu mensaje. Por favor, intenta de nuevo." 
       });
-      
-      push({ from: "bot", text: "Lo siento, hubo un error. Intenta de nuevo." });
     }
   };
 
   const handleManualEscalation = async () => {
+    if (!userId) return;
+
     try {
       const payload = {
-        channel: "instagram",
-        userHandle: userName,
+        userId: userId,
         conversationId: conversationId,
-        message: "Escalada manual desde UI",
+        priority: "high",
+        issue: "Escalación manual del usuario",
       };
-      const created = await api.createEscalation(payload);
-      await api.alert({
-        type: "escalation",
-        id: created.id,
-        at: new Date().toISOString(),
-      });
-      push({ from: "bot", text: "Caso escalado manualmente." });
+      await api.createEscalation(payload);
+      push({ from: "bot", text: "✅ Tu caso ha sido escalado. Un agente humano se pondrá en contacto contigo pronto." });
       setEscalated(true);
-    } catch (e) {
-      push({ from: "bot", text: "Error al escalar manualmente." });
+    } catch (error) {
+      console.error("Error al escalar:", error);
+      push({ from: "bot", text: "❌ Error al escalar. Por favor, intenta de nuevo." });
     }
   };
 
-  // Función para obtener color según categoría
   const getCategoryColor = (category) => {
     const colors = {
       "Soporte Técnico": "#e74c3c",
@@ -257,7 +293,7 @@ export default function ChatWidget() {
     return colors[category] || "#95a5a6";
   };
 
-    return (
+  return (
     <div style={styles.container}>
       <style>{`
         @keyframes slideIn {
@@ -279,52 +315,65 @@ export default function ChatWidget() {
         ...styles.sidebar,
         width: showSidebar ? '280px' : '0',
         padding: showSidebar ? '20px' : '0',
+        overflow: showSidebar ? 'visible' : 'hidden',
       }}>
-        <button onClick={() => {
-          saveChatToHistory();
-          initializeNewChat();
-        }} style={styles.newChatButton}>
+        <button 
+          onClick={initializeNewChat} 
+          style={styles.newChatButton}
+        >
           ➕ Nuevo Chat
         </button>
 
-        <div style={styles.historyLabel}>Historial</div>
+        <div style={styles.historyLabel}>
+          Historial {chatHistory.length > 0 && `(${chatHistory.length})`}
+        </div>
 
         <div style={styles.historyList}>
-          {chatHistory.map((chat) => (
-            <div
-              key={chat.id}
-              onClick={() => loadChat(chat)}
-              style={{
-                ...styles.historyItem,
-                background: conversationId === chat.id 
-                  ? 'rgba(102, 126, 234, 0.2)' 
-                  : 'rgba(255, 255, 255, 0.05)',
-              }}
-            >
-              <div style={styles.historyItemHeader}>
-                <span style={styles.historyItemTitle}>
-                  {chat.title}
-                </span>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    deleteChat(chat.id);
-                  }}
-                  style={styles.deleteButton}
-                >
-                  ✕
-                </button>
-              </div>
-              {chat.category && (
-                <span style={{
-                  ...styles.categoryBadge,
-                  background: getCategoryColor(chat.category),
-                }}>
-                  {chat.category}
-                </span>
-              )}
+          {isLoading ? (
+            <div style={{ textAlign: 'center', color: '#fff', padding: '20px' }}>
+              Cargando...
             </div>
-          ))}
+          ) : chatHistory.length === 0 ? (
+            <div style={{ textAlign: 'center', color: 'rgba(255,255,255,0.5)', padding: '20px', fontSize: '13px' }}>
+              No hay conversaciones aún
+            </div>
+          ) : (
+            chatHistory.map((chat) => (
+              <div
+                key={chat.id}
+                onClick={() => loadChat(chat)}
+                style={{
+                  ...styles.historyItem,
+                  background: conversationId === chat.id 
+                    ? 'rgba(102, 126, 234, 0.2)' 
+                    : 'rgba(255, 255, 255, 0.05)',
+                }}
+              >
+                <div style={styles.historyItemHeader}>
+                  <span style={styles.historyItemTitle}>
+                    {chat.title}
+                  </span>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      deleteChat(chat.id);
+                    }}
+                    style={styles.deleteButton}
+                  >
+                    ✕
+                  </button>
+                </div>
+                {chat.category && (
+                  <span style={{
+                    ...styles.categoryBadge,
+                    background: getCategoryColor(chat.category),
+                  }}>
+                    {chat.category}
+                  </span>
+                )}
+              </div>
+            ))
+          )}
         </div>
       </div>
 
@@ -376,6 +425,7 @@ export default function ChatWidget() {
               </div>
             </div>
           ))}
+          <div ref={messagesEndRef} />
         </div>
 
         {/* Input Area */}
@@ -383,14 +433,31 @@ export default function ChatWidget() {
           <input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && handleSend()}
+            onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
             placeholder="Escribe tu mensaje..."
             style={styles.input}
+            disabled={isLoading}
           />
-          <button onClick={handleSend} style={styles.sendButton}>
+          <button 
+            onClick={handleSend} 
+            style={{
+              ...styles.sendButton,
+              opacity: isLoading ? 0.5 : 1,
+              cursor: isLoading ? 'not-allowed' : 'pointer',
+            }}
+            disabled={isLoading}
+          >
             →
           </button>
-          <button onClick={handleManualEscalation} style={styles.escalateButton}>
+          <button 
+            onClick={handleManualEscalation} 
+            style={{
+              ...styles.escalateButton,
+              opacity: isLoading ? 0.5 : 1,
+              cursor: isLoading ? 'not-allowed' : 'pointer',
+            }}
+            disabled={isLoading}
+          >
             🚨 Escalar
           </button>
         </div>
@@ -398,7 +465,7 @@ export default function ChatWidget() {
         {/* Escalation Alert */}
         {escalated && (
           <div style={styles.escalationAlert}>
-            ✅ Caso escalado (revisa Bandeja)
+            ✅ Caso escalado a un agente humano
           </div>
         )}
       </div>
@@ -415,7 +482,6 @@ const styles = {
     margin: '0 auto',
   },
 
-  // SIDEBAR
   sidebar: {
     background: 'rgba(15, 12, 41, 0.8)',
     backdropFilter: 'blur(10px)',
@@ -499,7 +565,6 @@ const styles = {
     fontWeight: '600',
   },
 
-  // MAIN CHAT
   mainChat: {
     flex: 1,
     display: 'flex',
