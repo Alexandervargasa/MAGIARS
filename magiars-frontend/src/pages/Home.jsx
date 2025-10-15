@@ -28,6 +28,10 @@ function Home() {
           0%, 100% { box-shadow: 0 0 20px rgba(102, 126, 234, 0.4); }
           50% { box-shadow: 0 0 40px rgba(102, 126, 234, 0.7); }
         }
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.7; }
+        }
       `}</style>
 
       {/* Hero Section */}
@@ -120,14 +124,72 @@ function Home() {
         </div>
       </div>
 
+      {/* Business Hours Section - NUEVO */}
+      <div style={styles.scheduleSection}>
+        <div style={styles.scheduleCard}>
+          <div style={styles.scheduleHeader}>
+            <span style={styles.scheduleIcon}>🕐</span>
+            <h3 style={styles.scheduleTitle}>Horario de Atención</h3>
+          </div>
+          
+          <p style={styles.scheduleSubtitle}>
+            Nuestro chatbot inteligente está disponible en los siguientes horarios:
+          </p>
+
+          <div style={styles.scheduleGrid}>
+            <div style={styles.scheduleItem}>
+              <div style={styles.scheduleDay}>
+                <span style={styles.dayIcon}>📅</span>
+                Lunes a Viernes
+              </div>
+              <div style={styles.scheduleTime}>
+                9:00 AM - 6:00 PM
+              </div>
+            </div>
+
+            <div style={styles.scheduleItem}>
+              <div style={styles.scheduleDay}>
+                <span style={styles.dayIcon}>📅</span>
+                Sábados
+              </div>
+              <div style={styles.scheduleTime}>
+                9:00 AM - 2:00 PM
+              </div>
+            </div>
+
+            <div style={styles.scheduleItem}>
+              <div style={styles.scheduleDay}>
+                <span style={styles.dayIcon}>📅</span>
+                Domingos
+              </div>
+              <div style={{
+                ...styles.scheduleTime,
+                color: '#ff6b6b'
+              }}>
+                Cerrado
+              </div>
+            </div>
+          </div>
+
+          <div style={styles.timezoneInfo}>
+            <span style={styles.timezoneIcon}>🌎</span>
+            Hora de Colombia (UTC-5)
+          </div>
+
+          <div style={styles.scheduleNote}>
+            💡 Fuera de estos horarios, puedes dejar tu mensaje y te responderemos en cuanto estemos disponibles
+          </div>
+        </div>
+      </div>
+
       {/* Stats Section */}
       <div style={styles.statsSection}>
         {[
-          { number: "24/7", label: "Disponibilidad" },
-          { number: "< 1s", label: "Tiempo de Respuesta" },
-          { number: "99.9%", label: "Precisión IA" }
+          { number: "< 1s", label: "Tiempo de Respuesta", icon: "⚡" },
+          { number: "99.9%", label: "Precisión IA", icon: "🎯" },
         ].map((stat, idx) => (
           <div key={idx} style={styles.statCard}>
+            <div style={styles.statIcon}>{stat.icon}</div>
             <div style={styles.statNumber}>{stat.number}</div>
             <div style={styles.statLabel}>{stat.label}</div>
           </div>
@@ -294,6 +356,124 @@ const styles = {
     lineHeight: '1.6',
   },
 
+  // NUEVOS ESTILOS PARA HORARIO
+  scheduleSection: {
+    marginTop: '80px',
+    marginBottom: '80px',
+    display: 'flex',
+    justifyContent: 'center',
+  },
+
+  scheduleCard: {
+    background: 'rgba(15, 12, 41, 0.9)',
+    backdropFilter: 'blur(20px)',
+    border: '1px solid rgba(102, 126, 234, 0.3)',
+    borderRadius: '24px',
+    padding: '40px',
+    maxWidth: '700px',
+    width: '100%',
+    boxShadow: '0 12px 40px rgba(0, 0, 0, 0.4)',
+    animation: 'fadeIn 0.8s ease-out',
+  },
+
+  scheduleHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '15px',
+    marginBottom: '20px',
+  },
+
+  scheduleIcon: {
+    fontSize: '40px',
+    animation: 'pulse 2s ease-in-out infinite',
+  },
+
+  scheduleTitle: {
+    fontSize: '28px',
+    fontWeight: 'bold',
+    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+    WebkitBackgroundClip: 'text',
+    WebkitTextFillColor: 'transparent',
+    backgroundClip: 'text',
+    margin: 0,
+  },
+
+  scheduleSubtitle: {
+    textAlign: 'center',
+    color: 'rgba(255, 255, 255, 0.7)',
+    fontSize: '15px',
+    marginBottom: '30px',
+    lineHeight: '1.6',
+  },
+
+  scheduleGrid: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '15px',
+    marginBottom: '25px',
+  },
+
+  scheduleItem: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '18px 25px',
+    background: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: '14px',
+    border: '1px solid rgba(102, 126, 234, 0.2)',
+    transition: 'all 0.3s ease',
+  },
+
+  scheduleDay: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '10px',
+    fontSize: '16px',
+    fontWeight: '600',
+    color: '#fff',
+  },
+
+  dayIcon: {
+    fontSize: '20px',
+  },
+
+  scheduleTime: {
+    fontSize: '16px',
+    fontWeight: '700',
+    color: '#4caf50',
+    letterSpacing: '0.5px',
+  },
+
+  timezoneInfo: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: '8px',
+    padding: '12px',
+    background: 'rgba(102, 126, 234, 0.1)',
+    borderRadius: '10px',
+    color: 'rgba(255, 255, 255, 0.8)',
+    fontSize: '14px',
+    fontWeight: '500',
+    marginBottom: '20px',
+  },
+
+  timezoneIcon: {
+    fontSize: '18px',
+  },
+
+  scheduleNote: {
+    textAlign: 'center',
+    padding: '15px',
+    background: 'rgba(255, 193, 7, 0.1)',
+    border: '1px solid rgba(255, 193, 7, 0.3)',
+    borderRadius: '10px',
+    color: '#ffc107',
+    fontSize: '13px',
+    lineHeight: '1.5',
+  },
+
   statsSection: {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
@@ -309,6 +489,14 @@ const styles = {
     padding: '30px',
     textAlign: 'center',
     animation: 'glow 3s ease-in-out infinite',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: '10px',
+  },
+
+  statIcon: {
+    fontSize: '32px',
   },
 
   statNumber: {
@@ -318,7 +506,6 @@ const styles = {
     WebkitBackgroundClip: 'text',
     WebkitTextFillColor: 'transparent',
     backgroundClip: 'text',
-    marginBottom: '10px',
   },
 
   statLabel: {

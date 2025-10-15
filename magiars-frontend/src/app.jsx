@@ -11,6 +11,7 @@ import Integrations from "./pages/Integrations.jsx";
 import ConnectionStatusBanner from "./components/ConnectionStatusBanner.jsx";
 import UserProfile from "./components/UserProfile.jsx";
 import DataDeletion from "./pages/DataDeletion.jsx";
+import BusinessHours from "./pages/BusinessHours";
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -138,6 +139,7 @@ export default function App() {
             <Route path="/integrations" element={<Integrations />} />
             <Route path="/about" element={<About />} />
             <Route path="/data-deletion" element={<DataDeletion />} />
+            <Route path="/business-hours" element={<BusinessHours />} />
           </Routes>
         </main>
       </div>

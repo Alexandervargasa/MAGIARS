@@ -416,7 +416,41 @@ Título:`;
   }
 }
 
-// Endpoint principal para mensajes
+// Horarios de atención
+function wantsToRate(message) {
+  const ratingKeywords = ["gracias por la atención", "gracias por la atencion", "adiós", "adios", "hasta luego"];
+  const lowerMessage = message.toLowerCase();
+  return ratingKeywords.some(keyword => lowerMessage.includes(keyword));
+}
+
+async function isWithinBusinessHours() {
+  try {
+    const businessHours = await db.getBusinessHours();
+    
+    if (!businessHours.enabled) return true;
+
+    const now = new Date().toLocaleString("en-US", { timeZone: businessHours.timezone });
+    const currentDate = new Date(now);
+    const dayNames = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+    const currentDay = dayNames[currentDate.getDay()];
+    const daySchedule = businessHours.schedule[currentDay];
+
+    if (!daySchedule || !daySchedule.enabled) return false;
+
+    const currentTime = currentDate.getHours() * 60 + currentDate.getMinutes();
+    const [openHour, openMin] = daySchedule.open.split(":").map(Number);
+    const [closeHour, closeMin] = daySchedule.close.split(":").map(Number);
+    const openTime = openHour * 60 + openMin;
+    const closeTime = closeHour * 60 + closeMin;
+
+    return currentTime >= openTime && currentTime < closeTime;
+  } catch (error) {
+    console.error("Error verificando horarios:", error);
+    return true; // En caso de error, permitir acceso
+  }
+}
+
+// Endpoint principal para mensajes - CORREGIDO
 app.post("/api/messages", async (req, res) => {
   const { message, userId, conversationId, conversationHistory, isFirstMessage } = req.body;
 
@@ -425,13 +459,36 @@ app.post("/api/messages", async (req, res) => {
   }
 
   try {
+    // Verificar horario de atención primero
+    const withinHours = await isWithinBusinessHours();
+    if (!withinHours) {
+      const businessHours = await db.getBusinessHours();
+      return res.json({ 
+        reply: `Lo siento, actualmente estamos fuera de nuestro horario de atención. Nuestro horario es de lunes a viernes de 9:00 AM a 6:00 PM, y sábados de 9:00 AM a 2:00 PM (hora de Colombia). Por favor, vuelve en nuestro horario de atención. ¡Gracias!`,
+        outOfHours: true,
+        requiresEscalation: false
+      });
+    }
+    
+    // Verificar si quiere valorar
+    if (wantsToRate(message)) {
+      return res.json({
+        reply: "¡Gracias por contactarnos! Nos encantaría saber tu opinión sobre la atención recibida.",
+        showRating: true,
+        requiresEscalation: false
+      });
+    }
+
+    // Manejar conversación y mensajes
     let currentConversationId = conversationId;
+    let conversationTitle = null;  // 👈 VARIABLE PARA EL TÍTULO
     
     // Si es el primer mensaje, crear conversación
     if (isFirstMessage && userId) {
       currentConversationId = `conv-${Date.now()}`;
-      const title = await generateConversationTitle(message);
-      await db.createConversation(userId, currentConversationId, title);
+      conversationTitle = await generateConversationTitle(message);  // 👈 GUARDAR TÍTULO
+      await db.createConversation(userId, currentConversationId, conversationTitle);
+      console.log(`✅ Nueva conversación creada: ${currentConversationId} - "${conversationTitle}"`);
     }
     
     // Guardar mensaje del usuario
@@ -450,7 +507,8 @@ app.post("/api/messages", async (req, res) => {
       return res.json({ 
         reply, 
         requiresEscalation: true,
-        conversationId: currentConversationId
+        conversationId: currentConversationId,
+        title: conversationTitle  // 👈 INCLUIR TÍTULO
       });
     }
     
@@ -480,7 +538,8 @@ app.post("/api/messages", async (req, res) => {
       reply, 
       requiresEscalation: false, 
       category,
-      conversationId: currentConversationId
+      conversationId: currentConversationId,
+      title: conversationTitle  // 👈 INCLUIR TÍTULO AQUÍ TAMBIÉN
     });
   } catch (error) {
     console.error("Error procesando mensaje:", error);
@@ -528,6 +587,112 @@ app.delete("/api/conversations/:conversationId", async (req, res) => {
     res.status(500).json({ error: 'Error al eliminar conversación' });
   }
 });
+
+// ============================================================
+// VALORACIONES (HU-15)
+// ============================================================
+
+// Guardar valoración
+app.post("/api/ratings", async (req, res) => {
+  try {
+    const { conversationId, userId, rating, comment } = req.body;
+    
+    if (!conversationId || !rating) {
+      return res.status(400).json({ error: "Faltan datos requeridos" });
+    }
+
+    if (rating < 1 || rating > 5) {
+      return res.status(400).json({ error: "La valoración debe estar entre 1 y 5" });
+    }
+
+    const newRating = await db.createRating({
+      conversationId,
+      userId,
+      rating,
+      comment: comment || ""
+    });
+
+    console.log("⭐ Nueva valoración guardada:", newRating);
+    res.json({ success: true, rating: newRating });
+  } catch (error) {
+    console.error("Error guardando valoración:", error);
+    res.status(500).json({ error: "Error al guardar valoración" });
+  }
+});
+
+// Obtener valoraciones
+app.get("/api/ratings", async (req, res) => {
+  try {
+    const filters = {};
+    if (req.query.userId) filters.userId = req.query.userId;
+    if (req.query.conversationId) filters.conversationId = req.query.conversationId;
+    
+    const ratings = await db.getRatings(filters);
+    res.json(ratings);
+  } catch (error) {
+    console.error("Error obteniendo valoraciones:", error);
+    res.status(500).json({ error: "Error al obtener valoraciones" });
+  }
+});
+
+// Obtener estadísticas de valoraciones
+app.get("/api/ratings/stats", async (req, res) => {
+  try {
+    const userId = req.query.userId || null;
+    const stats = await db.getRatingStats(userId);
+    res.json(stats);
+  } catch (error) {
+    console.error("Error obteniendo estadísticas:", error);
+    res.status(500).json({ error: "Error al obtener estadísticas" });
+  }
+});
+
+// ============================================================
+// HORARIOS DE ATENCIÓN (HU-12)
+// ============================================================
+
+// Obtener horarios configurados
+app.get("/api/business-hours", async (req, res) => {
+  try {
+    const businessHours = await db.getBusinessHours();
+    res.json(businessHours);
+  } catch (error) {
+    console.error("Error obteniendo horarios:", error);
+    res.status(500).json({ error: "Error al obtener horarios" });
+  }
+});
+
+// Actualizar horarios
+app.post("/api/business-hours", async (req, res) => {
+  try {
+    const { enabled, timezone, schedule } = req.body;
+    
+    const businessHours = await db.updateBusinessHours({
+      enabled,
+      timezone,
+      schedule
+    });
+    
+    console.log("🕐 Horarios actualizados:", businessHours);
+    res.json({ success: true, businessHours });
+  } catch (error) {
+    console.error("Error actualizando horarios:", error);
+    res.status(500).json({ error: "Error al actualizar horarios" });
+  }
+});
+
+// Verificar si estamos en horario
+app.get("/api/business-hours/check", async (req, res) => {
+  try {
+    const isOpen = await isWithinBusinessHours();
+    const businessHours = await db.getBusinessHours();
+    res.json({ isOpen, businessHours });
+  } catch (error) {
+    console.error("Error verificando horario:", error);
+    res.status(500).json({ error: "Error al verificar horario" });
+  }
+});
+
 
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {

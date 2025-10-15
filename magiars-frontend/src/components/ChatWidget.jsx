@@ -16,6 +16,10 @@ export default function ChatWidget() {
   const [chatHistory, setChatHistory] = useState([]);
   const [showSidebar, setShowSidebar] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
+  const [showRatingModal, setShowRatingModal] = useState(false);
+  const [selectedRating, setSelectedRating] = useState(0);
+  const [ratingComment, setRatingComment] = useState("");
+  const [isOutOfHours, setIsOutOfHours] = useState(false);
   const messagesEndRef = useRef(null);
 
   // Obtener userId al cargar
@@ -85,42 +89,58 @@ export default function ChatWidget() {
     }
   };
 
-  const loadChat = async (chat) => {
-    if (!chat.id) return;
+const loadChat = async (chat) => {
+  if (!chat.id) return;
 
-    try {
-      setIsLoading(true);
-      
-      // Cargar mensajes de esta conversación desde el backend
-      const messagesData = await api.getConversationMessages(chat.id);
-      
-      // Formatear mensajes para el componente
-      const formattedMessages = [
+  try {
+    setIsLoading(true);
+    
+    // Cargar mensajes de esta conversación desde el backend
+    const messagesData = await api.getConversationMessages(chat.id);
+    
+    // Formatear mensajes para el componente
+    let formattedMessages = [];
+    
+    if (messagesData.length === 0) {
+      // Si no hay mensajes guardados, mostrar solo el mensaje de bienvenida
+      formattedMessages = [
+        { from: "bot", text: "¡Hola! Soy el asistente de MAGIARS 🤖." }
+      ];
+    } else {
+      // Si hay mensajes, cargarlos (sin duplicar el mensaje de bienvenida)
+      formattedMessages = [
         { from: "bot", text: "¡Hola! Soy el asistente de MAGIARS 🤖." },
         ...messagesData.map(msg => ({
           from: msg.role === "user" ? "user" : "bot",
           text: msg.content,
         }))
       ];
-
-      setConversationId(chat.id);
-      setConversationTitle(chat.title);
-      setConversationCategory(chat.category);
-      setMessages(formattedMessages);
-      setEscalated(false);
-    } catch (error) {
-      console.error("Error cargando conversación:", error);
-      // Si falla, cargar vacío
-      setConversationId(chat.id);
-      setConversationTitle(chat.title);
-      setConversationCategory(chat.category);
-      setMessages([
-        { from: "bot", text: "¡Hola! Soy el asistente de MAGIARS 🤖." },
-      ]);
-    } finally {
-      setIsLoading(false);
     }
-  };
+
+    setConversationId(chat.id);
+    setConversationTitle(chat.title);
+    setConversationCategory(chat.category);
+    setMessages(formattedMessages);
+    setEscalated(false);
+    
+    console.log(`✅ Conversación cargada: ${chat.id} con ${messagesData.length} mensajes`);
+  } catch (error) {
+    console.error("Error cargando conversación:", error);
+    
+    // Si falla la carga, mostrar la conversación vacía pero funcional
+    setConversationId(chat.id);
+    setConversationTitle(chat.title);
+    setConversationCategory(chat.category);
+    setMessages([
+      { from: "bot", text: "¡Hola! Soy el asistente de MAGIARS 🤖." },
+    ]);
+    setEscalated(false);
+    
+    console.log(`⚠️ Conversación ${chat.id} cargada sin mensajes (posiblemente nueva)`);
+  } finally {
+    setIsLoading(false);
+  }
+};
 
   const deleteChat = async (chatId) => {
     try {
@@ -151,117 +171,143 @@ export default function ChatWidget() {
   const push = (m) => setMessages((prev) => [...prev, m]);
 
   const handleSend = async () => {
-    if (!input.trim() || !userId) return;
+  if (!input.trim() || !userId) return;
 
-    const userMessage = input;
-    const isFirstMessage = messages.length === 1; // Solo mensaje de bienvenida
-    
-    push({ from: "user", text: userMessage });
-    setInput("");
+  const userMessage = input;
+  const isFirstMessage = messages.length === 1; // Solo mensaje de bienvenida
+  
+  push({ from: "user", text: userMessage });
+  setInput("");
 
-    // Mostrar "Procesando..."
-    push({ from: "bot", text: "⏳ Procesando..." });
+  // Mostrar "Procesando..."
+  push({ from: "bot", text: "⏳ Procesando..." });
 
-    try {
-      // Construir historial para mantener contexto (sin mensaje de bienvenida)
-      const conversationHistory = messages
-        .filter(m => 
-          m.text !== "⏳ Procesando..." && 
-          !m.text.includes("¡Hola! Soy el asistente de MAGIARS")
-        )
-        .map(m => ({
-          role: m.from === "user" ? "user" : "assistant",
-          content: m.text
-        }));
+  try {
+    // Construir historial para mantener contexto (sin mensaje de bienvenida)
+    const conversationHistory = messages
+      .filter(m => 
+        m.text !== "⏳ Procesando..." && 
+        !m.text.includes("¡Hola! Soy el asistente de MAGIARS")
+      )
+      .map(m => ({
+        role: m.from === "user" ? "user" : "assistant",
+        content: m.text
+      }));
 
-      // Llamar al backend
-      const response = await api.sendMessage(
-        userMessage, 
-        userId, 
-        conversationId, 
-        conversationHistory,
-        isFirstMessage
-      );
+    // Llamar al backend
+    const response = await api.sendMessage(
+      userMessage, 
+      userId, 
+      conversationId, 
+      conversationHistory,
+      isFirstMessage
+    );
 
-      // Remover "Procesando..."
-      setMessages(prev => prev.slice(0, -1));
+    // Remover "Procesando..."
+    setMessages(prev => prev.slice(0, -1));
 
-      // Verificar escalación
-      if (response.requiresEscalation) {
-        push({ from: "bot", text: response.reply });
-        
-        try {
-          const payload = {
-            userId: userId,
-            conversationId: conversationId,
-            priority: "high",
-            issue: userMessage,
-          };
-          await api.createEscalation(payload);
-          setEscalated(true);
-        } catch (e) {
-          console.error("Error al escalar:", e);
-        }
-      } else {
-        // Mostrar respuesta
-        push({ from: "bot", text: response.reply });
-        
-        // Actualizar título si es primer mensaje
-        if (isFirstMessage && response.title) {
-          setConversationTitle(response.title);
-          
-          // Actualizar historial con nuevo título
-          setChatHistory(prev => {
-            const exists = prev.find(c => c.id === conversationId);
-            if (exists) {
-              return prev.map(c => 
-                c.id === conversationId 
-                  ? { ...c, title: response.title }
-                  : c
-              );
-            } else {
-              return [{
-                id: conversationId,
-                title: response.title,
-                category: null,
-                timestamp: new Date().toISOString(),
-              }, ...prev];
-            }
-          });
-        }
-        
-        // Actualizar categoría si viene
-        if (response.category) {
-          setConversationCategory(response.category);
-          
-          setChatHistory(prev => 
-            prev.map(c => 
-              c.id === conversationId 
-                ? { ...c, category: response.category }
-                : c
-            )
-          );
-        }
-
-        // Si hay un nuevo conversationId (primera vez)
-        if (response.conversationId && !conversationId) {
-          setConversationId(response.conversationId);
-        }
-      }
-    } catch (error) {
-      console.error("Error al enviar mensaje:", error);
-      
-      // Remover "Procesando..."
-      setMessages(prev => prev.slice(0, -1));
-      
-      push({ 
-        from: "bot", 
-        text: "Lo siento, hubo un error al procesar tu mensaje. Por favor, intenta de nuevo." 
-      });
+    // Verificar si estamos fuera de horario
+    if (response.outOfHours) {
+      push({ from: "bot", text: response.reply });
+      setIsOutOfHours(true);
+      return;
     }
-  };
+
+    // Verificar si quiere valorar
+    if (response.showRating) {
+      push({ from: "bot", text: response.reply });
+      setShowRatingModal(true);
+      return;
+    }
+
+    // Verificar escalación
+    if (response.requiresEscalation) {
+      push({ from: "bot", text: response.reply });
+      
+      try {
+        const payload = {
+          userId: userId,
+          conversationId: conversationId,
+          priority: "high",
+          issue: userMessage,
+        };
+        await api.createEscalation(payload);
+        setEscalated(true);
+      } catch (e) {
+        console.error("Error al escalar:", e);
+      }
+    } else {
+      // Mostrar respuesta
+      push({ from: "bot", text: response.reply });
+      
+      // Actualizar título si es primer mensaje
+      if (isFirstMessage && response.title) {
+        setConversationTitle(response.title);
+        
+        // Actualizar o agregar al historial
+        setChatHistory(prev => {
+          const exists = prev.find(c => c.id === conversationId);
+          if (exists) {
+            // Actualizar conversación existente
+            return prev.map(c => 
+              c.id === conversationId 
+                ? { ...c, title: response.title, timestamp: new Date().toISOString() }
+                : c
+            );
+          } else {
+            // Agregar nueva conversación al inicio
+            return [{
+              id: conversationId,
+              title: response.title,
+              category: response.category || null,
+              timestamp: new Date().toISOString(),
+            }, ...prev];
+          }
+        });
+        
+        console.log(`✅ Conversación "${response.title}" agregada al historial`);
+      }
+      
+      // Actualizar categoría si viene
+      if (response.category) {
+        setConversationCategory(response.category);
+        
+        setChatHistory(prev => 
+          prev.map(c => 
+            c.id === conversationId 
+              ? { ...c, category: response.category, timestamp: new Date().toISOString() }
+              : c
+          )
+        );
+        
+        console.log(`✅ Categoría "${response.category}" asignada`);
+      }
+
+      // Si hay un nuevo conversationId (primera vez)
+      if (response.conversationId && !conversationId) {
+        setConversationId(response.conversationId);
+      }
+    }
+  } catch (error) {
+    console.error("Error al enviar mensaje:", error);
+    
+    // Remover "Procesando..."
+    setMessages(prev => prev.slice(0, -1));
+    
+    push({ 
+      from: "bot", 
+      text: "Lo siento, hubo un error al procesar tu mensaje. Por favor, intenta de nuevo." 
+    });
+  }
+};
 
   const handleManualEscalation = async () => {
+    // Verificar si estamos fuera de horario
+    if (isOutOfHours) {
+      push({ from: "bot", text: "Lo siento, no es posible escalar casos fuera de nuestro horario de atención." });
+      return;
+    }
+
     if (!userId) return;
 
     try {
@@ -277,6 +323,30 @@ export default function ChatWidget() {
     } catch (error) {
       console.error("Error al escalar:", error);
       push({ from: "bot", text: "❌ Error al escalar. Por favor, intenta de nuevo." });
+    }
+  };
+
+  // Manejar valoración
+  const handleSubmitRating = async () => {
+    if (selectedRating === 0) {
+      alert("Por favor selecciona una calificación");
+      return;
+    }
+
+    try {
+      await api.submitRating(conversationId, userId, selectedRating, ratingComment);
+      
+      push({ 
+        from: "bot", 
+        text: `¡Gracias por tu valoración de ${selectedRating} ${selectedRating === 1 ? 'estrella' : 'estrellas'}! Tu opinión es muy importante para nosotros. 😊` 
+      });
+      
+      setShowRatingModal(false);
+      setSelectedRating(0);
+      setRatingComment("");
+    } catch (e) {
+      console.error("Error al enviar valoración:", e);
+      alert("Error al enviar la valoración");
     }
   };
 
@@ -469,6 +539,162 @@ export default function ChatWidget() {
           </div>
         )}
       </div>
+
+      {/* Alerta de fuera de horario */}
+        {isOutOfHours && (
+          <div style={{
+            padding: '12px 20px',
+            background: 'rgba(255, 152, 0, 0.2)',
+            borderTop: '1px solid rgba(255, 152, 0, 0.3)',
+            color: '#ff9800',
+            textAlign: 'center',
+            fontSize: '14px',
+            fontWeight: '600',
+          }}>
+            ⏰ Fuera de horario de atención
+          </div>
+        )}
+
+      {/* Modal de Valoración */}
+      {showRatingModal && (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          background: 'rgba(0, 0, 0, 0.7)',
+          backdropFilter: 'blur(5px)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          zIndex: 2000,
+          animation: 'fadeIn 0.3s ease-out',
+        }}>
+          <div style={{
+            background: 'linear-gradient(135deg, rgba(15, 12, 41, 0.95) 0%, rgba(30, 27, 75, 0.95) 100%)',
+            backdropFilter: 'blur(20px)',
+            border: '1px solid rgba(102, 126, 234, 0.3)',
+            padding: '35px',
+            borderRadius: '20px',
+            maxWidth: '450px',
+            width: '90%',
+            boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)',
+            animation: 'slideIn 0.3s ease-out',
+          }}>
+            <h3 style={{ 
+              marginTop: 0, 
+              marginBottom: '25px', 
+              textAlign: 'center',
+              color: '#fff',
+              fontSize: '22px',
+              fontWeight: '600',
+            }}>
+              ¿Cómo fue tu experiencia?
+            </h3>
+            
+            <div style={{ 
+              display: 'flex', 
+              justifyContent: 'center', 
+              gap: '12px', 
+              marginBottom: '25px',
+              fontSize: '38px'
+            }}>
+              {[1, 2, 3, 4, 5].map((star) => (
+                <span
+                  key={star}
+                  onClick={() => setSelectedRating(star)}
+                  onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.2)'}
+                  onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
+                  style={{
+                    cursor: 'pointer',
+                    color: star <= selectedRating ? '#ffc107' : 'rgba(255, 255, 255, 0.2)',
+                    transition: 'all 0.2s ease',
+                    filter: star <= selectedRating ? 'drop-shadow(0 0 10px #ffc107)' : 'none',
+                  }}
+                >
+                  ⭐
+                </span>
+              ))}
+            </div>
+
+            <textarea
+              value={ratingComment}
+              onChange={(e) => setRatingComment(e.target.value)}
+              placeholder="Cuéntanos más sobre tu experiencia (opcional)"
+              style={{
+                width: '100%',
+                minHeight: '90px',
+                padding: '12px 15px',
+                borderRadius: '12px',
+                border: '1px solid rgba(102, 126, 234, 0.3)',
+                background: 'rgba(255, 255, 255, 0.05)',
+                color: '#fff',
+                marginBottom: '20px',
+                fontFamily: 'inherit',
+                fontSize: '14px',
+                resize: 'vertical',
+                outline: 'none',
+                transition: 'all 0.3s ease',
+              }}
+              onFocus={(e) => e.target.style.border = '1px solid rgba(102, 126, 234, 0.6)'}
+              onBlur={(e) => e.target.style.border = '1px solid rgba(102, 126, 234, 0.3)'}
+            />
+
+            <div style={{ display: 'flex', gap: '12px' }}>
+              <button
+                onClick={() => {
+                  setShowRatingModal(false);
+                  setSelectedRating(0);
+                  setRatingComment("");
+                }}
+                style={{
+                  flex: 1,
+                  padding: '12px',
+                  background: 'rgba(108, 117, 125, 0.3)',
+                  color: '#fff',
+                  border: '1px solid rgba(108, 117, 125, 0.5)',
+                  borderRadius: '12px',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  transition: 'all 0.3s ease',
+                }}
+                onMouseEnter={(e) => e.target.style.background = 'rgba(108, 117, 125, 0.5)'}
+                onMouseLeave={(e) => e.target.style.background = 'rgba(108, 117, 125, 0.3)'}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSubmitRating}
+                style={{
+                  flex: 1,
+                  padding: '12px',
+                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '12px',
+                  cursor: 'pointer',
+                  fontSize: '14px',
+                  fontWeight: '600',
+                  transition: 'all 0.3s ease',
+                  boxShadow: '0 4px 15px rgba(102, 126, 234, 0.4)',
+                }}
+                onMouseEnter={(e) => {
+                  e.target.style.transform = 'translateY(-2px)';
+                  e.target.style.boxShadow = '0 6px 20px rgba(102, 126, 234, 0.6)';
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.transform = 'translateY(0)';
+                  e.target.style.boxShadow = '0 4px 15px rgba(102, 126, 234, 0.4)';
+                }}
+              >
+                Enviar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

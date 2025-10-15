@@ -154,6 +154,44 @@ const api = {
       method: "DELETE",
     });
   },
+
+  // VALORACIONES (HU-15)
+  submitRating(conversationId, userId, rating, comment = "") {
+    return request("/ratings", {
+      method: "POST",
+      body: JSON.stringify({ conversationId, userId, rating, comment }),
+    });
+  },
+
+  getRatings(filters = {}) {
+    const params = new URLSearchParams();
+    if (filters.userId) params.append("userId", filters.userId);
+    if (filters.conversationId) params.append("conversationId", filters.conversationId);
+    
+    const queryString = params.toString();
+    return request(`/ratings${queryString ? `?${queryString}` : ""}`);
+  },
+
+  getRatingStats(userId = null) {
+    const params = userId ? `?userId=${userId}` : "";
+    return request(`/ratings/stats${params}`);
+  },
+
+  // HORARIOS (HU-12)
+  getBusinessHours() {
+    return request("/business-hours");
+  },
+
+  updateBusinessHours(data) {
+    return request("/business-hours", {
+      method: "POST",
+      body: JSON.stringify(data),
+    });
+  },
+
+  checkBusinessHours() {
+    return request("/business-hours/check");
+  },
 };
 
 export default api;
