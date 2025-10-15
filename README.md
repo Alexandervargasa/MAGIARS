@@ -1,4 +1,4 @@
-<<<<<<< HEAD
+
 # MAGIARS
 Proyecto de todo el semestre de ingenieria de software
 
@@ -6,7 +6,8 @@ Por:
 Jeronimo Rodriguez,
 Simon Tovar y
 Alexander Vargas
-=======
+
+
 # MAGIARS Fullstack (v0.4.0) (Reviews y Horarios de atencion)
 ## (El bot ahora cuenta con horarios de atencion, de Lunes a Viernes de 9 AM a 6 PM, y Sabados de 9 AM a 2 PM)
 ## Adicionalmente se agrego el sistema de rating
