@@ -12,12 +12,29 @@ import ConnectionStatusBanner from "./components/ConnectionStatusBanner.jsx";
 import UserProfile from "./components/UserProfile.jsx";
 import DataDeletion from "./pages/DataDeletion.jsx";
 import BusinessHours from "./pages/BusinessHours";
+import Modal from "./Modal.jsx"; // 🟢 NUEVO IMPORT
 
 export default function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [currentPath, setCurrentPath] = useState(window.location.pathname);
   const navigate = useNavigate();
+
+  // 🟢 NUEVO ESTADO Y EFECTO PARA EL MODAL
+  const [showModal, setShowModal] = useState(false);
+
+  useEffect(() => {
+    // Mostrar el popup solo la primera vez
+    const alreadySeen = localStorage.getItem("enterpriseNoticeSeen");
+    if (!alreadySeen) {
+      setShowModal(true);
+    }
+  }, []);
+
+  const handleCloseModal = () => {
+    localStorage.setItem("enterpriseNoticeSeen", "true");
+    setShowModal(false);
+  };
 
   useEffect(() => {
     // Verificar si hay usuario autenticado
@@ -33,8 +50,8 @@ export default function App() {
 
     // Actualizar path actual para estilos activos
     const updatePath = () => setCurrentPath(window.location.pathname);
-    window.addEventListener('popstate', updatePath);
-    return () => window.removeEventListener('popstate', updatePath);
+    window.addEventListener("popstate", updatePath);
+    return () => window.removeEventListener("popstate", updatePath);
   }, []);
 
   const handleLogout = () => {
@@ -64,25 +81,24 @@ export default function App() {
     );
   }
 
-   // Si hay usuario, mostrar la app completa
+  // Si hay usuario, mostrar la app completa
   if (user) {
     return (
       <div style={styles.appContainer}>
-        {/* Agregar el estilo global aquí */}
         <style>{`
           * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
           }
-          
+
           html, body, #root {
             margin: 0;
             padding: 0;
             width: 100%;
             min-height: 100vh;
           }
-          
+
           @keyframes fadeIn {
             from { opacity: 0; }
             to { opacity: 1; }
@@ -92,45 +108,41 @@ export default function App() {
             50% { box-shadow: 0 0 20px rgba(102, 126, 234, 0.6); }
           }
         `}</style>
-        
+
         <ConnectionStatusBanner />
-        
+
         {/* Navbar Futurista */}
         <nav style={styles.navbar}>
           <div style={styles.navContent}>
-            {/* Logo */}
             <h1 style={styles.logo}>✨ MAGIARS</h1>
-            
-            {/* Nav Links */}
+
             <div style={styles.navLinks}>
               {[
-                { path: '/', label: 'Inicio' },
-                { path: '/dashboard', label: 'Dashboard' },
-                { path: '/inbox', label: 'Inbox' },
-                { path: '/integrations', label: 'Integraciones' },
-                { path: '/about', label: 'Acerca de' }
+                { path: "/", label: "Inicio" },
+                { path: "/dashboard", label: "Dashboard" },
+                { path: "/inbox", label: "Inbox" },
+                { path: "/integrations", label: "Integraciones" },
+                { path: "/about", label: "Acerca de" },
               ].map(({ path, label }) => (
                 <button
                   key={path}
                   onClick={() => handleNavClick(path)}
                   style={{
                     ...styles.navButton,
-                    ...(currentPath === path ? styles.navButtonActive : {})
+                    ...(currentPath === path ? styles.navButtonActive : {}),
                   }}
                 >
                   {label}
                 </button>
               ))}
             </div>
-            
-            {/* User Profile */}
+
             <div style={styles.userProfileContainer}>
               <UserProfile user={user} onLogout={handleLogout} />
             </div>
           </div>
         </nav>
 
-        {/* Main Content */}
         <main style={styles.mainContent}>
           <Routes>
             <Route path="/" element={<Home />} />
@@ -142,135 +154,164 @@ export default function App() {
             <Route path="/business-hours" element={<BusinessHours />} />
           </Routes>
         </main>
+
+        {/* 🟢 MODAL SE MUESTRA AQUÍ */}
+        {showModal && <Modal onClose={handleCloseModal} />}
       </div>
     );
   }
 
   // Si no hay usuario, mostrar rutas de autenticación
   return (
-    <Routes>
-      <Route path="/login" element={<LoginMeta onLoginSuccess={() => {
-        const userStr = localStorage.getItem("user");
-        if (userStr) {
-          setUser(JSON.parse(userStr));
-        }
-      }} />} />
-      <Route path="/auth/callback" element={<AuthCallback onLoginSuccess={() => {
-        const userStr = localStorage.getItem("user");
-        if (userStr) {
-          setUser(JSON.parse(userStr));
-        }
-      }} />} />
-      <Route path="/data-deletion" element={<DataDeletion />} />
-      <Route path="*" element={<LoginMeta onLoginSuccess={() => {
-        const userStr = localStorage.getItem("user");
-        if (userStr) {
-          setUser(JSON.parse(userStr));
-        }
-      }} />} />
-    </Routes>
+    <>
+      <Routes>
+        <Route
+          path="/login"
+          element={
+            <LoginMeta
+              onLoginSuccess={() => {
+                const userStr = localStorage.getItem("user");
+                if (userStr) {
+                  setUser(JSON.parse(userStr));
+                }
+              }}
+            />
+          }
+        />
+        <Route
+          path="/auth/callback"
+          element={
+            <AuthCallback
+              onLoginSuccess={() => {
+                const userStr = localStorage.getItem("user");
+                if (userStr) {
+                  setUser(JSON.parse(userStr));
+                }
+              }}
+            />
+          }
+        />
+        <Route path="/data-deletion" element={<DataDeletion />} />
+        <Route
+          path="*"
+          element={
+            <LoginMeta
+              onLoginSuccess={() => {
+                const userStr = localStorage.getItem("user");
+                if (userStr) {
+                  setUser(JSON.parse(userStr));
+                }
+              }}
+            />
+          }
+        />
+      </Routes>
+
+      {/* 🟢 MODAL TAMBIÉN PARA LOGIN */}
+      {showModal && <Modal onClose={handleCloseModal} />}
+    </>
   );
 }
 
 const styles = {
   appContainer: {
-    minHeight: '100vh',
-    background: 'linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%)',
+    minHeight: "100vh",
+    background:
+      "linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%)",
     fontFamily: '"Segoe UI", Tahoma, Geneva, Verdana, sans-serif',
   },
 
   loadingContainer: {
-    minHeight: '100vh',
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    background: 'linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%)',
-  },
-  
-  loader: {
-    width: '50px',
-    height: '50px',
-    border: '4px solid rgba(102, 126, 234, 0.2)',
-    borderTop: '4px solid #667eea',
-    borderRadius: '50%',
-    animation: 'spin 1s linear infinite',
-  },
-  
-  loadingText: {
-    marginTop: '20px',
-    color: '#fff',
-    fontSize: '18px',
-    fontWeight: '300',
+    minHeight: "100vh",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    background:
+      "linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%)",
   },
 
-  // NAVBAR FUTURISTA
+  loader: {
+    width: "50px",
+    height: "50px",
+    border: "4px solid rgba(102, 126, 234, 0.2)",
+    borderTop: "4px solid #667eea",
+    borderRadius: "50%",
+    animation: "spin 1s linear infinite",
+  },
+
+  loadingText: {
+    marginTop: "20px",
+    color: "#fff",
+    fontSize: "18px",
+    fontWeight: "300",
+  },
+
   navbar: {
-    background: 'rgba(15, 12, 41, 0.8)',
-    backdropFilter: 'blur(10px)',
-    borderBottom: '1px solid rgba(102, 126, 234, 0.2)',
-    position: 'sticky',
+    background: "rgba(15, 12, 41, 0.8)",
+    backdropFilter: "blur(10px)",
+    borderBottom: "1px solid rgba(102, 126, 234, 0.2)",
+    position: "sticky",
     top: 0,
     zIndex: 100,
-    padding: '0 20px',
-  },
-  
-  navContent: {
-    maxWidth: '1400px',
-    margin: '0 auto',
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    height: '70px',
-  },
-  
-  logo: {
-    fontSize: '24px',
-    fontWeight: 'bold',
-    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-    WebkitBackgroundClip: 'text',
-    WebkitTextFillColor: 'transparent',
-    backgroundClip: 'text',
-    margin: 0,
-    letterSpacing: '2px',
-    cursor: 'default',
-  },
-  
-  navLinks: {
-    display: 'flex',
-    gap: '20px',
-  },
-  
-  navButton: {
-    background: 'transparent',
-    border: 'none',
-    color: '#fff',
-    fontSize: '14px',
-    fontWeight: '500',
-    cursor: 'pointer',
-    padding: '8px 16px',
-    borderRadius: '8px',
-    transition: 'all 0.3s ease',
-    textTransform: 'capitalize',
-  },
-  
-  navButtonActive: {
-    background: 'rgba(102, 126, 234, 0.2)',
-    borderLeft: '2px solid #667eea',
-    borderRight: '2px solid #667eea',
-  },
-  
-  userProfileContainer: {
-    display: 'flex',
-    alignItems: 'center',
+    padding: "0 20px",
   },
 
-  // MAIN CONTENT
+  navContent: {
+    maxWidth: "1400px",
+    margin: "0 auto",
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    height: "70px",
+  },
+
+  logo: {
+    fontSize: "24px",
+    fontWeight: "bold",
+    background: "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+    WebkitBackgroundClip: "text",
+    WebkitTextFillColor: "transparent",
+    backgroundClip: "text",
+    margin: 0,
+    letterSpacing: "2px",
+    cursor: "default",
+  },
+
+  navLinks: {
+    display: "flex",
+    gap: "20px",
+  },
+
+  navButton: {
+    background: "transparent",
+    border: "none",
+    color: "#fff",
+    fontSize: "14px",
+    fontWeight: "500",
+    cursor: "pointer",
+    padding: "8px 16px",
+    borderRadius: "8px",
+    transition: "all 0.3s ease",
+    textTransform: "capitalize",
+  },
+
+  navButtonActive: {
+    background: "rgba(102, 126, 234, 0.2)",
+    borderLeft: "2px solid #667eea",
+    borderRight: "2px solid #667eea",
+  },
+
+  userProfileContainer: {
+    display: "flex",
+    alignItems: "center",
+  },
+
   mainContent: {
-    maxWidth: '1400px',
-    margin: '0 auto',
-    padding: '20px',
-    width: '100%',
-    animation: 'fadeIn 0.6s ease-in',
+    maxWidth: "1400px",
+    margin: "0 auto",
+    padding: "20px",
+    width: "100%",
+    animation: "fadeIn 0.6s ease-in",
   },
 };
