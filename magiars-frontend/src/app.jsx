@@ -12,7 +12,7 @@ import ConnectionStatusBanner from "./components/ConnectionStatusBanner.jsx";
 import UserProfile from "./components/UserProfile.jsx";
 import DataDeletion from "./pages/DataDeletion.jsx";
 import BusinessHours from "./pages/BusinessHours";
-import Modal from "./Modal.jsx"; // 🟢 NUEVO IMPORT
+import Modal from "./Modal.jsx"; 
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -20,7 +20,7 @@ export default function App() {
   const [currentPath, setCurrentPath] = useState(window.location.pathname);
   const navigate = useNavigate();
 
-  // 🟢 NUEVO ESTADO Y EFECTO PARA EL MODAL
+  
   const [showModal, setShowModal] = useState(false);
 
   useEffect(() => {
