@@ -35,7 +35,24 @@ const api = {
   },
 
   // ============================================================
-  // AUTENTICACIÓN CON META
+  // AUTENTICACIÓN LOCAL (NUEVA)
+  // ============================================================
+  register(name, email, password) {
+    return request("/auth/register", {
+      method: "POST",
+      body: JSON.stringify({ name, email, password }),
+    });
+  },
+
+  login(email, password) {
+    return request("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    });
+  },
+
+  // ============================================================
+  // AUTENTICACIÓN CON META (mantener por si acaso)
   // ============================================================
   getMetaLoginUrl() {
     return request("/auth/meta-login-url");
@@ -138,17 +155,14 @@ const api = {
     });
   },
 
-  // Obtener todas las conversaciones de un usuario
   getConversations(userId) {
     return request(`/conversations/${userId}`);
   },
 
-  // Obtener mensajes de una conversación específica
   getConversationMessages(conversationId) {
     return request(`/conversations/${conversationId}/messages`);
   },
 
-  // Eliminar una conversación
   deleteConversation(conversationId) {
     return request(`/conversations/${conversationId}`, {
       method: "DELETE",
@@ -191,6 +205,26 @@ const api = {
 
   checkBusinessHours() {
     return request("/business-hours/check");
+  },
+
+  // ============================================================
+  // ADMINISTRACIÓN (solo admins)
+  // ============================================================
+  getAllUsers() {
+    return request("/admin/users");
+  },
+
+  updateUserRole(userId, role) {
+    return request(`/admin/users/${userId}/role`, {
+      method: "PUT",
+      body: JSON.stringify({ role }),
+    });
+  },
+
+  deleteUserById(userId) {
+    return request(`/admin/users/${userId}`, {
+      method: "DELETE",
+    });
   },
 };
 

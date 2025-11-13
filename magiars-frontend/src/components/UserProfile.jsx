@@ -1,9 +1,27 @@
 // src/components/UserProfile.jsx
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import api from "../services/api.js";
 
 export default function UserProfile({ user, onLogout }) {
   const [showMenu, setShowMenu] = useState(false);
+  const dropdownRef = useRef(null);
+
+  // Cerrar menú al hacer clic fuera
+  useEffect(() => {
+    function handleClickOutside(event) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setShowMenu(false);
+      }
+    }
+
+    if (showMenu) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+    };
+  }, [showMenu]);
 
   const handleLogout = async () => {
     try {
@@ -11,10 +29,29 @@ export default function UserProfile({ user, onLogout }) {
       localStorage.removeItem("authToken");
       localStorage.removeItem("user");
       localStorage.removeItem("metaAccessToken");
-      if (onLogout) onLogout();
+      
+      // Cerrar menú primero
+      setShowMenu(false);
+      
+      // Llamar callback de logout (esto actualizará el estado en App.jsx)
+      if (onLogout) {
+        onLogout();
+      }
     } catch (err) {
       console.error("Logout error:", err);
+      // Aunque falle la llamada al backend, cerrar sesión localmente
+      if (onLogout) {
+        onLogout();
+      }
     }
+  };
+
+  const getRoleDisplay = (role) => {
+    const roles = {
+      'admin': 'Administrador',
+      'user': 'Usuario'
+    };
+    return roles[role] || 'Usuario';
   };
 
   if (!user) {
@@ -22,7 +59,7 @@ export default function UserProfile({ user, onLogout }) {
   }
 
   return (
-    <div style={styles.container}>
+    <div style={styles.container} ref={dropdownRef}>
       <style>{`
         @keyframes slideDown {
           from { 
@@ -34,10 +71,23 @@ export default function UserProfile({ user, onLogout }) {
             transform: translateY(0);
           }
         }
+        
+        .profile-button:hover {
+          background: rgba(255, 255, 255, 0.15) !important;
+          border-color: rgba(102, 126, 234, 0.5) !important;
+          transform: translateY(-2px);
+          box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+        }
+        
+        .logout-button:hover {
+          background: rgba(239, 68, 68, 0.1) !important;
+          color: #ef4444 !important;
+        }
       `}</style>
 
       {/* Profile Button */}
       <div 
+        className="profile-button"
         style={styles.profileButton}
         onClick={() => setShowMenu(!showMenu)}
       >
@@ -57,7 +107,9 @@ export default function UserProfile({ user, onLogout }) {
           <span style={styles.userName}>
             {user.name || "Usuario"}
           </span>
-          <span style={styles.userRole}>Administrador</span>
+          <span style={styles.userRole}>
+            {getRoleDisplay(user.role)}
+          </span>
         </div>
 
         <span style={{
@@ -76,12 +128,20 @@ export default function UserProfile({ user, onLogout }) {
               <strong style={styles.dropdownName}>
                 {user.name || "Usuario"}
               </strong>
+              {user.email && (
+                <span style={styles.dropdownEmail}>{user.email}</span>
+              )}
+              {/* 👇 OPCIONAL: También mostrar el rol en el dropdown */}
+              <span style={styles.dropdownRole}>
+                {getRoleDisplay(user.role)}
+              </span>
             </div>
           </div>
 
           <div style={styles.dropdownDivider}></div>
 
           <button
+            className="logout-button"
             onClick={handleLogout}
             style={styles.logoutButton}
           >
@@ -196,6 +256,15 @@ const styles = {
   dropdownEmail: {
     fontSize: '13px',
     color: 'rgba(255, 255, 255, 0.6)',
+    wordBreak: 'break-word',
+  },
+
+  // 👇 NUEVO: Estilo para el rol en el dropdown
+  dropdownRole: {
+    fontSize: '12px',
+    color: 'rgba(102, 126, 234, 0.8)',
+    fontWeight: '500',
+    marginTop: '3px',
   },
 
   dropdownDivider: {

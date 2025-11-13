@@ -1,7 +1,7 @@
 // src/App.jsx
 import React, { useEffect, useState } from "react";
 import { Routes, Route, useNavigate } from "react-router-dom";
-import LoginMeta from "./components/LoginMeta";
+import Login from "./components/Login.jsx"; // ✅ Cambiado de LoginMeta a Login
 import AuthCallback from "./pages/AuthCallback";
 import Home from "./pages/Home";
 import Dashboard from "./pages/Dashboard";
@@ -12,6 +12,7 @@ import ConnectionStatusBanner from "./components/ConnectionStatusBanner.jsx";
 import UserProfile from "./components/UserProfile.jsx";
 import DataDeletion from "./pages/DataDeletion.jsx";
 import BusinessHours from "./pages/BusinessHours";
+import AdminPanel from "./pages/AdminPanel.jsx"; // ✅ NUEVO
 import Modal from "./Modal.jsx"; 
 
 export default function App() {
@@ -20,7 +21,6 @@ export default function App() {
   const [currentPath, setCurrentPath] = useState(window.location.pathname);
   const navigate = useNavigate();
 
-  
   const [showModal, setShowModal] = useState(false);
 
   useEffect(() => {
@@ -54,11 +54,24 @@ export default function App() {
     return () => window.removeEventListener("popstate", updatePath);
   }, []);
 
+  // ✅ FUNCIÓN DE LOGOUT MEJORADA
   const handleLogout = () => {
-    setUser(null);
+    // Limpiar todo el localStorage
     localStorage.removeItem("authToken");
     localStorage.removeItem("user");
-    navigate("/login");
+    localStorage.removeItem("metaAccessToken");
+    
+    // Actualizar estado inmediatamente (esto causa el re-render)
+    setUser(null);
+    
+    // NO necesitas navigate porque al setear user a null,
+    // React automáticamente renderizará el componente Login
+  };
+
+  // ✅ FUNCIÓN DE LOGIN MEJORADA
+  const handleLoginSuccess = (userData) => {
+    setUser(userData);
+    navigate("/"); // Redirigir al home después de login exitoso
   };
 
   const handleNavClick = (path) => {
@@ -120,9 +133,10 @@ export default function App() {
               {[
                 { path: "/", label: "Inicio" },
                 { path: "/dashboard", label: "Dashboard" },
-                { path: "/inbox", label: "Inbox" },
+                // { path: "/inbox", label: "Inbox" },
                 { path: "/integrations", label: "Integraciones" },
                 { path: "/about", label: "Acerca de" },
+                ...(user.role === 'admin' ? [{ path: "/admin", label: "👑 Admin" }] : []),
               ].map(({ path, label }) => (
                 <button
                   key={path}
@@ -147,67 +161,48 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/inbox" element={<Inbox />} />
             <Route path="/integrations" element={<Integrations />} />
             <Route path="/about" element={<About />} />
             <Route path="/data-deletion" element={<DataDeletion />} />
             <Route path="/business-hours" element={<BusinessHours />} />
+            <Route 
+              path="/admin" 
+              element={
+                user.role === 'admin' ? (
+                  <AdminPanel />
+                ) : (
+                  <div style={styles.accessDenied}>
+                    <h2>🔒 Acceso Denegado</h2>
+                    <p>Solo administradores pueden acceder a esta página</p>
+                  </div>
+                )
+              } 
+            />
           </Routes>
         </main>
 
-        {/* 🟢 MODAL SE MUESTRA AQUÍ */}
+        {/* Modal */}
         {showModal && <Modal onClose={handleCloseModal} />}
       </div>
     );
   }
 
-  // Si no hay usuario, mostrar rutas de autenticación
+  // ✅ Si no hay usuario, mostrar LOGIN directamente (sin rutas complicadas)
   return (
     <>
       <Routes>
         <Route
-          path="/login"
-          element={
-            <LoginMeta
-              onLoginSuccess={() => {
-                const userStr = localStorage.getItem("user");
-                if (userStr) {
-                  setUser(JSON.parse(userStr));
-                }
-              }}
-            />
-          }
-        />
-        <Route
           path="/auth/callback"
-          element={
-            <AuthCallback
-              onLoginSuccess={() => {
-                const userStr = localStorage.getItem("user");
-                if (userStr) {
-                  setUser(JSON.parse(userStr));
-                }
-              }}
-            />
-          }
+          element={<AuthCallback onLoginSuccess={handleLoginSuccess} />}
         />
         <Route path="/data-deletion" element={<DataDeletion />} />
         <Route
           path="*"
-          element={
-            <LoginMeta
-              onLoginSuccess={() => {
-                const userStr = localStorage.getItem("user");
-                if (userStr) {
-                  setUser(JSON.parse(userStr));
-                }
-              }}
-            />
-          }
+          element={<Login onLoginSuccess={handleLoginSuccess} />}
         />
       </Routes>
 
-      {/* 🟢 MODAL TAMBIÉN PARA LOGIN */}
+      {/* Modal también para login */}
       {showModal && <Modal onClose={handleCloseModal} />}
     </>
   );
@@ -313,5 +308,14 @@ const styles = {
     padding: "20px",
     width: "100%",
     animation: "fadeIn 0.6s ease-in",
+  },
+
+  accessDenied: {
+    textAlign: "center",
+    padding: "60px 20px",
+    background: "rgba(239, 68, 68, 0.1)",
+    border: "1px solid rgba(239, 68, 68, 0.3)",
+    borderRadius: "12px",
+    color: "#fff",
   },
 };

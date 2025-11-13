@@ -29,80 +29,145 @@ db.initDatabase().catch(err => {
   process.exit(1);
 });
 
-// Health check principal
-app.get("/", (req, res) => {
-  res.json({ message: "✅ MAGIARS Backend conectado correctamente" });
-});
+// 1. Registro de usuario
+app.post("/api/auth/register", async (req, res) => {
+  const { name, email, password } = req.body;
 
-// Health check API
-app.get("/api/health", (req, res) => {
-  res.json({ status: "ok" });
-});
-
-// ============================================================
-// RUTAS DE AUTENTICACIÓN CON META
-// ============================================================
-
-// 1. Generar URL de login con Meta
-app.get("/api/auth/meta-login-url", (req, res) => {
-  if (!META_APP_ID) {
-    return res.status(400).json({ error: "META_APP_ID no configurado" });
+  // Validaciones
+  if (!name || !email || !password) {
+    return res.status(400).json({ error: "Todos los campos son requeridos" });
   }
 
-  const scopes = ["public_profile"];
-  const params = new URLSearchParams({
-    client_id: META_APP_ID,
-    redirect_uri: META_REDIRECT_URI,
-    scope: scopes.join(","),
-    response_type: "code",
-    display: "popup",
-  });
+  if (password.length < 6) {
+    return res.status(400).json({ error: "La contraseña debe tener al menos 6 caracteres" });
+  }
 
-  const loginUrl = `https://www.facebook.com/v18.0/dialog/oauth?${params}`;
-  res.json({ loginUrl });
-});
-
-// 2. Callback de Meta - Intercambiar code por token
-app.post("/api/auth/meta-callback", async (req, res) => {
-  const { code } = req.body;
-
-  if (!code) {
-    return res.status(400).json({ error: "No code provided" });
+  // Validar formato de email
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    return res.status(400).json({ error: "Email inválido" });
   }
 
   try {
-    // Intercambiar code por access_token
-    const tokenResponse = await axios.get("https://graph.facebook.com/v18.0/oauth/access_token", {
-      params: {
-        client_id: META_APP_ID,
-        client_secret: META_APP_SECRET,
-        redirect_uri: META_REDIRECT_URI,
-        code: code,
-      },
-    });
-
-    const { access_token } = tokenResponse.data;
-
-    // Obtener datos del usuario
-    const userResponse = await axios.get("https://graph.facebook.com/me", {
-      params: {
-        fields: "id,name,email,picture",
-        access_token: access_token,
-      },
-    });
-
-    const { id, name, email, picture } = userResponse.data;
-
-    // Guardar o actualizar usuario en SQLite
-    const user = await db.createOrUpdateUser({
-      metaId: id,
-      name: name,
-      email: email,
-      avatar: picture?.data?.url || null,
-    });
+    const user = await db.registerUser({ name, email, password });
 
     // Generar JWT
-    const token = jwt.sign({ userId: user.id, metaId: id }, JWT_SECRET, {
+    const token = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, {
+      expiresIn: "7d",
+    });
+
+    res.json({
+      success: true,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        authType: user.authType,
+        role: user.role || 'user'
+      },
+      token: token,
+    });
+  } catch (error) {
+    console.error("Error en registro:", error.message);
+    
+    if (error.message === 'EMAIL_ALREADY_EXISTS') {
+      return res.status(409).json({ error: "Este email ya está registrado" });
+    }
+    
+    res.status(500).json({
+      error: "Error al registrar usuario",
+      message: error.message,
+    });
+  }
+});
+
+// ============================================================
+// RUTAS DE ADMINISTRACIÓN
+// ============================================================
+
+// Middleware para verificar si el usuario es admin
+async function isAdmin(req, res, next) {
+  const token = req.headers.authorization?.split(" ")[1];
+
+  if (!token) {
+    return res.status(401).json({ error: "No autorizado" });
+  }
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    const user = await db.getUserById(decoded.userId);
+
+    if (!user || user.role !== 'admin') {
+      return res.status(403).json({ error: "Acceso denegado. Se requiere rol de administrador." });
+    }
+
+    req.user = user;
+    next();
+  } catch (error) {
+    return res.status(401).json({ error: "Token inválido" });
+  }
+}
+
+// Obtener todos los usuarios (solo admin)
+app.get("/api/admin/users", isAdmin, async (req, res) => {
+  try {
+    const users = await db.getAllUsers();
+    res.json(users);
+  } catch (error) {
+    console.error("Error obteniendo usuarios:", error);
+    res.status(500).json({ error: "Error al obtener usuarios" });
+  }
+});
+
+// Cambiar rol de usuario (solo admin)
+app.put("/api/admin/users/:userId/role", isAdmin, async (req, res) => {
+  const { userId } = req.params;
+  const { role } = req.body;
+
+  if (!role || !['user', 'admin'].includes(role)) {
+    return res.status(400).json({ error: "Rol inválido" });
+  }
+
+  try {
+    const updatedUser = await db.updateUserRole(userId, role);
+    res.json({ success: true, user: updatedUser });
+  } catch (error) {
+    console.error("Error actualizando rol:", error);
+    res.status(500).json({ error: "Error al actualizar rol" });
+  }
+});
+
+// Eliminar usuario (solo admin)
+app.delete("/api/admin/users/:userId", isAdmin, async (req, res) => {
+  const { userId } = req.params;
+
+  // No permitir que el admin se elimine a sí mismo
+  if (req.user.id === userId) {
+    return res.status(400).json({ error: "No puedes eliminarte a ti mismo" });
+  }
+
+  try {
+    await db.deleteUserById(userId);
+    res.json({ success: true, message: "Usuario eliminado" });
+  } catch (error) {
+    console.error("Error eliminando usuario:", error);
+    res.status(500).json({ error: "Error al eliminar usuario" });
+  }
+});
+
+// 2. Login de usuario
+app.post("/api/auth/login", async (req, res) => {
+  const { email, password } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).json({ error: "Email y contraseña son requeridos" });
+  }
+
+  try {
+    const user = await db.loginUser(email, password);
+
+    // Generar JWT
+    const token = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, {
       expiresIn: "7d",
     });
 
@@ -113,18 +178,25 @@ app.post("/api/auth/meta-callback", async (req, res) => {
         name: user.name,
         email: user.email,
         avatar: user.avatar,
+        authType: user.authType,
+        role: user.role || 'user'
       },
       token: token,
-      accessToken: access_token,
     });
   } catch (error) {
-    console.error("Error en callback de Meta:", error.message);
+    console.error("Error en login:", error.message);
+    
+    if (error.message === 'INVALID_CREDENTIALS') {
+      return res.status(401).json({ error: "Email o contraseña incorrectos" });
+    }
+    
     res.status(500).json({
-      error: "Error al autenticar con Meta",
+      error: "Error al iniciar sesión",
       message: error.message,
     });
   }
 });
+
 
 // 3. Verificar token JWT
 app.get("/api/auth/verify", async (req, res) => {
@@ -142,40 +214,21 @@ app.get("/api/auth/verify", async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
+    // ✅ El user ya viene con el role desde database.js
     res.json({ user });
   } catch (error) {
     res.status(401).json({ error: "Invalid token" });
   }
 });
 
-// 4. Logout
-app.post("/api/auth/logout", (req, res) => {
-  res.json({ success: true, message: "Sesión cerrada" });
+// Health check principal
+app.get("/", (req, res) => {
+  res.json({ message: "✅ MAGIARS Backend conectado correctamente" });
 });
 
-// 5. Data Deletion Request (Requerido por Meta)
-app.get("/api/auth/data-deletion", (req, res) => {
-  res.status(200).json({
-    url: "https://jewel-unmelted-reanna.ngrok-free.dev/data-deletion",
-    confirmation_code: `deletion_${Date.now()}`,
-  });
-});
-
-app.post("/api/auth/data-deletion", async (req, res) => {
-  const { user_id, signed_request } = req.body;
-
-  try {
-    // Eliminar usuario de la base de datos (CASCADE eliminará todo relacionado)
-    await db.deleteUser(user_id);
-    console.log(`Usuario ${user_id} eliminado de la base de datos`);
-  } catch (error) {
-    console.error('Error al eliminar usuario:', error);
-  }
-
-  res.status(200).json({
-    url: "https://jewel-unmelted-reanna.ngrok-free.dev/data-deletion",
-    confirmation_code: `deletion_${Date.now()}`,
-  });
+// Health check API
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok" });
 });
 
 // ============================================================
