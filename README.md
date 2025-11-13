@@ -8,9 +8,8 @@ Simon Tovar y
 Alexander Vargas
 
 
-# MAGIARS Fullstack (v0.4.0) (Reviews y Horarios de atencion)
-## (El bot ahora cuenta con horarios de atencion, de Lunes a Viernes de 9 AM a 6 PM, y Sabados de 9 AM a 2 PM)
-## Adicionalmente se agrego el sistema de rating
+# MAGIARS Fullstack (v0.5.0)
+## (Se removio el apartado de Inbox, se agrego panel de administracion y se cambio metodo de inicio de sesion)
 
 Incluye **frontend (React + Vite)** y **backend (Express)** para cubrir las HU solicitadas.
 
