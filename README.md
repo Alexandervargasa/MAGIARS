@@ -8,11 +8,9 @@ Simon Tovar y
 Alexander Vargas
 
 
-# MAGIARS Fullstack (v0.4.0) (Reviews y Horarios de atencion)
-## (El bot ahora cuenta con horarios de atencion, de Lunes a Viernes de 9 AM a 6 PM, y Sabados de 9 AM a 2 PM)
-## Adicionalmente se agrego el sistema de rating
+# MAGIARS Fullstack (v1.0.0) 
 
-Incluye **frontend (React + Vite)** y **backend (Express)** para cubrir las HU solicitadas.
+Incluye **frontend (React + Vite)**, **backend (Express)** y **Bot funcional en Instagram**
 
 ## 🚀 Cómo correr
 
@@ -51,7 +49,7 @@ Abre `http://localhost:5173`.
 El frontend usa la URL del backend `http://localhost:4000` configurada en `src/services/api.js`.
 
 ## Base de datos
-Por el momento, se usa SQLite para almacenar los datos del usuario, las conversaciones con el bot, el rating y las integraciones guardadas por el mismo usuario, para instalarlo, ejecute el siguiente comando:
+Se usa SQLite3, para instalar:
 
 ```bash
 npm install sqlite3
@@ -65,3 +63,7 @@ Para utilizarla en el proyecto, basta con ejecutar el siguiente comando:
 npm install @google/generative-ai
 ```
 >>>>>>> v0.4.0
+
+
+## Instagram
+El bot ya se integro a Instagram, para conectar, simplemente conecte su aplicacion respectiva con los identificadores y tokens.

@@ -36,10 +36,11 @@ async function initDatabase() {
 
     // Crear tablas si no existen
     await db.exec(`
-      -- Tabla de usuarios (ACTUALIZADA con campos para auth local)
+      -- Tabla de usuarios (ACTUALIZADA con instagramId)
       CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY,
         metaId TEXT UNIQUE,
+        instagramId TEXT UNIQUE,
         name TEXT NOT NULL,
         email TEXT UNIQUE NOT NULL,
         password TEXT,
@@ -108,7 +109,7 @@ async function initDatabase() {
         FOREIGN KEY (escalationId) REFERENCES escalations(id) ON DELETE CASCADE
       );
 
-      -- Tabla de valoraciones (HU-15)
+      -- Tabla de valoraciones
       CREATE TABLE IF NOT EXISTS ratings (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         conversationId TEXT NOT NULL,
@@ -120,7 +121,7 @@ async function initDatabase() {
         FOREIGN KEY (userId) REFERENCES users(id) ON DELETE CASCADE
       );
 
-      -- Tabla de horarios de atención (HU-12)
+      -- Tabla de horarios de atención
       CREATE TABLE IF NOT EXISTS business_hours (
         id INTEGER PRIMARY KEY CHECK(id = 1),
         enabled INTEGER DEFAULT 1,
@@ -138,6 +139,7 @@ async function initDatabase() {
       CREATE INDEX IF NOT EXISTS idx_ratings_conversationId ON ratings(conversationId);
       CREATE INDEX IF NOT EXISTS idx_ratings_userId ON ratings(userId);
       CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+      CREATE INDEX IF NOT EXISTS idx_users_instagramId ON users(instagramId);
     `);
 
     console.log('✅ Tablas creadas correctamente');
@@ -149,12 +151,12 @@ async function initDatabase() {
 }
 
 // ============================================================
-// FUNCIONES PARA USUARIOS - AUTENTICACIÓN LOCAL
+// FUNCIONES PARA USUARIOS
 // ============================================================
 
 async function registerUser(userData) {
   const db = await initDatabase();
-  const { name, email, password } = userData;
+  const { name, email, password, authType = 'local', instagramId = null, avatar = null } = userData;
   
   try {
     // Verificar si el email ya existe
@@ -164,23 +166,28 @@ async function registerUser(userData) {
       throw new Error('EMAIL_ALREADY_EXISTS');
     }
     
-    // Hashear la contraseña
-    const hashedPassword = await bcrypt.hash(password, 10);
+    // Hashear la contraseña solo si es authType local
+    let hashedPassword = password;
+    if (authType === 'local' && password) {
+      hashedPassword = await bcrypt.hash(password, 10);
+    }
     
     // Crear nuevo usuario con fecha en zona horaria de Colombia
     const id = Date.now().toString();
     const colombiaDate = getColombiaDateTime();
     
     await db.run(
-      'INSERT INTO users (id, name, email, password, authType, role, loginDate, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [id, name, email, hashedPassword, 'local', 'user', colombiaDate, colombiaDate]
+      'INSERT INTO users (id, name, email, password, authType, instagramId, avatar, role, loginDate, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      [id, name, email, hashedPassword, authType, instagramId, avatar, 'user', colombiaDate, colombiaDate]
     );
     
     return { 
       id, 
       name, 
       email, 
-      authType: 'local',
+      authType,
+      instagramId,
+      avatar,
       role: 'user'
     };
   } catch (error) {
@@ -233,7 +240,31 @@ async function getUserByEmail(email) {
   const user = await db.get('SELECT * FROM users WHERE email = ?', email);
   
   if (user) {
-    // No retornar la contraseña
+    const { password, ...userWithoutPassword } = user;
+    return userWithoutPassword;
+  }
+  
+  return null;
+}
+
+async function getUserById(userId) {
+  const db = await initDatabase();
+  const user = await db.get('SELECT * FROM users WHERE id = ?', userId);
+  
+  if (user) {
+    const { password, ...userWithoutPassword } = user;
+    return userWithoutPassword;
+  }
+  
+  return null;
+}
+
+// Buscar usuario por Instagram ID
+async function getUserByInstagramId(instagramId) {
+  const db = await initDatabase();
+  const user = await db.get('SELECT * FROM users WHERE instagramId = ?', [instagramId]);
+  
+  if (user) {
     const { password, ...userWithoutPassword } = user;
     return userWithoutPassword;
   }
@@ -344,6 +375,36 @@ async function getIntegrationsByUserId(userId) {
   }));
 }
 
+async function saveIntegration(data) {
+  const db = await initDatabase();
+  const { userId, platform, apiKey, webhookUrl, status } = data;
+  
+  // Verificar si ya existe
+  const existing = await db.get(
+    'SELECT * FROM integrations WHERE userId = ? AND platform = ?',
+    [userId, platform]
+  );
+  
+  if (existing) {
+    // Actualizar
+    await db.run(
+      `UPDATE integrations 
+       SET apiKey = ?, webhookUrl = ?, isActive = ?
+       WHERE userId = ? AND platform = ?`,
+      [apiKey, webhookUrl, status === 'active' ? 1 : 0, userId, platform]
+    );
+  } else {
+    // Crear nuevo
+    await db.run(
+      `INSERT INTO integrations (userId, platform, apiKey, webhookUrl, isActive)
+       VALUES (?, ?, ?, ?, ?)`,
+      [userId, platform, apiKey, webhookUrl, status === 'active' ? 1 : 0]
+    );
+  }
+  
+  return { success: true };
+}
+
 async function updateIntegration(id, updates) {
   const db = await initDatabase();
   const { platform, apiKey, webhookUrl, isActive, config } = updates;
@@ -433,7 +494,7 @@ async function resolveEscalation(escalationId) {
 }
 
 // ============================================================
-// FUNCIONES PARA VALORACIONES (HU-15)
+// FUNCIONES PARA VALORACIONES
 // ============================================================
 
 async function createRating(ratingData) {
@@ -490,7 +551,7 @@ async function getRatingStats(userId = null) {
 }
 
 // ============================================================
-// FUNCIONES PARA HORARIOS (HU-12)
+// FUNCIONES PARA HORARIOS
 // ============================================================
 
 async function getBusinessHours() {
@@ -580,10 +641,12 @@ async function deleteUserById(userId) {
 module.exports = {
   initDatabase,
   
-  // Usuarios - Autenticación Local
+  // Usuarios
   registerUser,
   loginUser,
   getUserByEmail,
+  getUserById,
+  getUserByInstagramId,
   
   // Conversaciones
   createConversation,
@@ -599,6 +662,7 @@ module.exports = {
   // Integraciones
   createIntegration,
   getIntegrationsByUserId,
+  saveIntegration,
   updateIntegration,
   deleteIntegration,
   

@@ -19,6 +19,7 @@ const META_APP_SECRET = process.env.META_APP_SECRET;
 const META_REDIRECT_URI = process.env.META_REDIRECT_URI || "http://localhost:5173/auth/callback";
 const JWT_SECRET = process.env.JWT_SECRET || "tu-llave-secreta-aqui";
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+const WEBHOOK_VERIFY_TOKEN = process.env.WEBHOOK_VERIFY_TOKEN || "magiars_webhook_2024";
 
 // Inicializar cliente de Gemini
 const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
@@ -197,7 +198,6 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 
-
 // 3. Verificar token JWT
 app.get("/api/auth/verify", async (req, res) => {
   const token = req.headers.authorization?.split(" ")[1];
@@ -214,7 +214,6 @@ app.get("/api/auth/verify", async (req, res) => {
       return res.status(404).json({ error: "User not found" });
     }
 
-    // ✅ El user ya viene con el role desde database.js
     res.json({ user });
   } catch (error) {
     res.status(401).json({ error: "Invalid token" });
@@ -239,16 +238,146 @@ app.get("/api/integrations", async (req, res) => {
   const userId = req.query.userId;
   
   if (!userId) {
-    return res.status(400).json({ error: "userId is required" });
+    // Si no hay userId, devolver estructura vacía
+    return res.json({
+      instagram: { token: "", webhook: "" },
+      facebook: { token: "", webhook: "" },
+      twitter: { token: "", webhook: "" }
+    });
   }
   
   try {
     const integrations = await db.getIntegrationsByUserId(userId);
-    res.json(integrations);
+    
+    // Convertir array a objeto estructurado
+    const structured = {
+      instagram: { token: "", webhook: "" },
+      facebook: { token: "", webhook: "" },
+      twitter: { token: "", webhook: "" }
+    };
+    
+    integrations.forEach(integration => {
+      if (structured[integration.platform]) {
+        structured[integration.platform] = {
+          token: integration.apiKey || "",
+          webhook: integration.webhookUrl || ""
+        };
+      }
+    });
+    
+    res.json(structured);
   } catch (error) {
     console.error('Error al obtener integraciones:', error);
     res.status(500).json({ error: 'Error al obtener integraciones' });
   }
+});
+
+// Guardar integraciones desde el frontend
+app.post("/api/integrations/save", async (req, res) => {
+  const { userId, integrations } = req.body;
+  
+  if (!userId || !integrations) {
+    return res.status(400).json({ error: "userId e integrations son requeridos" });
+  }
+  
+  try {
+    // Guardar cada plataforma
+    for (const [platform, config] of Object.entries(integrations)) {
+      if (config.token || config.webhook) {
+        await db.saveIntegration({
+          userId,
+          platform,
+          apiKey: config.token,
+          webhookUrl: config.webhook,
+          status: config.token ? 'active' : 'inactive'
+        });
+      }
+    }
+    
+    res.json({ success: true, message: "Integraciones guardadas correctamente" });
+  } catch (error) {
+    console.error('Error al guardar integraciones:', error);
+    res.status(500).json({ error: 'Error al guardar integraciones' });
+  }
+});
+
+// Probar conexiones de integraciones
+app.post("/api/integrations/test", async (req, res) => {
+  const { integrations } = req.body;
+  
+  const results = {};
+  
+  // Probar Instagram
+  if (integrations?.instagram?.token) {
+    try {
+      const response = await axios.get(
+        'https://graph.facebook.com/v21.0/me/accounts',
+        {
+          params: { access_token: integrations.instagram.token }
+        }
+      );
+      
+      results.instagram = {
+        ok: true,
+        details: `✓ Token válido - ${response.data.data?.length || 0} páginas encontradas`
+      };
+    } catch (error) {
+      results.instagram = {
+        ok: false,
+        details: `✗ Token inválido: ${error.response?.data?.error?.message || 'Error de conexión'}`
+      };
+    }
+  } else {
+    results.instagram = {
+      ok: false,
+      details: '○ Sin configurar'
+    };
+  }
+  
+  // Probar Facebook
+  if (integrations?.facebook?.token) {
+    try {
+      const response = await axios.get(
+        'https://graph.facebook.com/v21.0/me',
+        {
+          params: { 
+            access_token: integrations.facebook.token,
+            fields: 'id,name'
+          }
+        }
+      );
+      
+      results.facebook = {
+        ok: true,
+        details: `✓ Conectado como: ${response.data.name}`
+      };
+    } catch (error) {
+      results.facebook = {
+        ok: false,
+        details: `✗ Error: ${error.response?.data?.error?.message || 'Conexión fallida'}`
+      };
+    }
+  } else {
+    results.facebook = {
+      ok: false,
+      details: '○ Sin configurar'
+    };
+  }
+  
+  // Twitter (simulado)
+  if (integrations?.twitter?.token) {
+    results.twitter = {
+      ok: false,
+      details: '⚠️ Twitter API requiere autenticación OAuth 2.0'
+    };
+  } else {
+    results.twitter = {
+      ok: false,
+      details: '○ Sin configurar'
+    };
+  }
+  
+  res.json(results);
 });
 
 app.post("/api/integrations", async (req, res) => {
@@ -261,10 +390,6 @@ app.post("/api/integrations", async (req, res) => {
   }
 });
 
-app.post("/api/integrations/test", (req, res) => {
-  res.json({ success: true, message: "Connection test passed" });
-});
-
 app.delete("/api/integrations/:id", async (req, res) => {
   try {
     await db.deleteIntegration(req.params.id);
@@ -274,6 +399,557 @@ app.delete("/api/integrations/:id", async (req, res) => {
     res.status(500).json({ error: 'Error al eliminar integración' });
   }
 });
+
+// ============================================================
+// WEBHOOKS DE INSTAGRAM
+// ============================================================
+
+// Verificación del webhook (GET)
+app.get("/api/webhook/instagram", (req, res) => {
+  const mode = req.query["hub.mode"];
+  const token = req.query["hub.verify_token"];
+  const challenge = req.query["hub.challenge"];
+
+  console.log("🔍 Verificación de webhook recibida:", { mode, token });
+
+  if (mode === "subscribe" && token === WEBHOOK_VERIFY_TOKEN) {
+    console.log("✅ Webhook verificado correctamente");
+    res.status(200).send(challenge);
+  } else {
+    console.log("❌ Verificación de webhook fallida");
+    res.sendStatus(403);
+  }
+});
+
+// Recibir eventos de Instagram (POST)
+app.post("/api/webhook/instagram", async (req, res) => {
+  try {
+    const body = req.body;
+    
+    console.log("📥 Webhook recibido:", JSON.stringify(body, null, 2));
+    
+    // Meta requiere respuesta 200 inmediata
+    res.status(200).send("EVENT_RECEIVED");
+
+    // Verificar que es de Instagram
+    if (body.object !== "instagram") {
+      console.log("⚠️ Evento no es de Instagram");
+      return;
+    }
+
+    // Procesar cada entrada
+    for (const entry of body.entry) {
+      console.log("📦 Procesando entrada:", entry.id);
+      
+      // MENSAJES DIRECTOS
+      if (entry.messaging) {
+        for (const event of entry.messaging) {
+          await handleInstagramMessage(event);
+        }
+      }
+
+      // COMENTARIOS Y MENCIONES
+      if (entry.changes) {
+        for (const change of entry.changes) {
+          if (change.field === "comments") {
+            await handleInstagramComment(change.value);
+          }
+          
+          if (change.field === "mentions") {
+            await handleInstagramMention(change.value);
+          }
+        }
+      }
+    }
+  } catch (error) {
+    console.error("❌ Error procesando webhook:", error);
+  }
+});
+
+// ============================================================
+// HANDLERS DE EVENTOS DE INSTAGRAM
+// ============================================================
+
+async function handleInstagramMessage(event) {
+  try {
+    const senderId = event.sender.id;
+    const recipientId = event.recipient.id;
+
+    console.log("💬 Evento de mensaje:", { senderId, recipientId });
+
+    // Ignorar ecos (mensajes enviados por el bot)
+    if (event.message && !event.message.is_echo) {
+      const messageText = event.message.text;
+
+      if (!messageText) {
+        console.log("⚠️ Mensaje sin texto (imagen, sticker, etc.)");
+        return;
+      }
+
+      console.log(`📩 Mensaje de ${senderId}: ${messageText}`);
+
+      // Obtener token del usuario
+      const PAGE_ACCESS_TOKEN = await getInstagramTokenForPage(recipientId);
+      
+      if (!PAGE_ACCESS_TOKEN) {
+        console.log("❌ No hay token configurado para esta página");
+        return;
+      }
+
+      // Crear/obtener usuario
+      const userId = await getOrCreateUserFromInstagram(senderId);
+
+      // Crear conversación
+      const conversationId = `ig-${senderId}-${Date.now()}`;
+      const conversationTitle = await generateConversationTitle(messageText);
+      await db.createConversation(userId, conversationId, conversationTitle);
+
+      // Guardar mensaje del usuario
+      await db.saveMessage(conversationId, 'user', messageText);
+
+      // Verificar horario
+      const withinHours = await isWithinBusinessHours();
+      if (!withinHours) {
+        const reply = "🕐 Estamos fuera de horario. Horario: Lun-Vie 9AM-6PM, Sáb 9AM-2PM (Colombia). ¡Vuelve pronto!";
+        await sendInstagramMessage(senderId, reply, PAGE_ACCESS_TOKEN);
+        await db.saveMessage(conversationId, 'assistant', reply);
+        return;
+      }
+
+      // Verificar escalación
+      if (requiresEscalation(messageText)) {
+        const reply = "👤 Te conectaremos con un humano pronto. Espera...";
+        await sendInstagramMessage(senderId, reply, PAGE_ACCESS_TOKEN);
+        await db.saveMessage(conversationId, 'assistant', reply);
+        
+        await db.createEscalation({
+          userId,
+          conversationId,
+          platform: 'instagram',
+          issue: messageText,
+          priority: 'medium'
+        });
+        return;
+      }
+
+      // Respuesta con Gemini
+      const reply = await getGeminiResponse(messageText, []);
+      await sendInstagramMessage(senderId, reply, PAGE_ACCESS_TOKEN);
+      await db.saveMessage(conversationId, 'assistant', reply);
+
+      console.log(`✅ Respuesta enviada a ${senderId}`);
+    }
+  } catch (error) {
+    console.error("❌ Error en handleInstagramMessage:", error);
+  }
+}
+
+// ============================================================
+// SISTEMA DE TRACKING DE COMENTARIOS RESPONDIDOS
+// ============================================================
+
+// Cache en memoria de comentarios ya respondidos
+const respondedComments = new Set();
+
+// Limpiar cache cada 24 horas
+setInterval(() => {
+  respondedComments.clear();
+  console.log('🧹 Cache de comentarios respondidos limpiado');
+}, 24 * 60 * 60 * 1000); // 24 horas
+
+// 👇 ESTA ES LA VERSIÓN ACTUALIZADA DE handleInstagramComment
+async function handleInstagramComment(comment) {
+  try {
+    const commentId = comment.id;
+    const commentText = comment.text;
+    const commenterId = comment.from.id;
+    const commenterUsername = comment.from.username || 'unknown';
+
+    console.log(`💬 Comentario de @${commenterUsername} (${commenterId}): "${commentText}"`);
+
+    // 1. Verificar si ya respondimos este comentario
+    if (respondedComments.has(commentId)) {
+      console.log(`⏭️ Ignorado: Ya respondimos este comentario antes (${commentId})`);
+      return;
+    }
+
+    // 2. Obtener el ID de nuestra cuenta
+    const INSTAGRAM_USER_ID = process.env.INSTAGRAM_USER_ID;
+    
+    // 3. Ignorar comentarios de nuestra propia cuenta
+    if (commenterId === INSTAGRAM_USER_ID) {
+      console.log(`⏭️ Ignorado: Es un comentario del bot (${commenterId})`);
+      return;
+    }
+
+    const PAGE_ACCESS_TOKEN = await getInstagramTokenForPage(comment.media.id);
+    
+    if (!PAGE_ACCESS_TOKEN) {
+      console.log("❌ No hay token para responder comentarios");
+      return;
+    }
+
+    // 4. Verificar si es una respuesta a otro comentario
+    if (comment.parent_id) {
+      console.log(`⏭️ Ignorado: Es una respuesta a otro comentario (parent_id: ${comment.parent_id})`);
+      return;
+    }
+
+    // 5. Verificar si necesita respuesta
+    const needsReply = await shouldReplyToComment(commentText);
+
+    if (needsReply) {
+      // Generar respuesta personalizada
+      const reply = await generateCommentReply(commentText);
+      
+      // Responder al comentario
+      await replyToInstagramComment(commentId, reply, PAGE_ACCESS_TOKEN);
+      
+      // ✅ Marcar como respondido
+      respondedComments.add(commentId);
+      
+      console.log(`✅ Comentario respondido: ${commentId}`);
+      console.log(`   👤 Usuario: @${commenterUsername}`);
+      console.log(`   📝 Respuesta: "${reply}"`);
+      console.log(`   📊 Total respondidos: ${respondedComments.size}`);
+    } else {
+      console.log(`⏭️ Comentario ignorado (no requiere respuesta): "${commentText}"`);
+    }
+  } catch (error) {
+    console.error("❌ Error en handleInstagramComment:", error);
+  }
+}
+
+async function handleInstagramComment(comment) {
+  try {
+    const commentId = comment.id;
+    const commentText = comment.text;
+    const commenterId = comment.from.id;
+    const commenterUsername = comment.from.username || 'unknown';
+
+    console.log(`💬 Comentario de @${commenterUsername} (${commenterId}): "${commentText}"`);
+
+    // Obtener el ID de nuestra cuenta para evitar loop
+    const INSTAGRAM_USER_ID = process.env.INSTAGRAM_USER_ID;
+    
+    // 1. Ignorar comentarios de nuestra propia cuenta
+    if (commenterId === INSTAGRAM_USER_ID) {
+      console.log(`⏭️ Ignorado: Es un comentario del bot (${commenterId})`);
+      return;
+    }
+
+    const PAGE_ACCESS_TOKEN = await getInstagramTokenForPage(comment.media.id);
+    
+    if (!PAGE_ACCESS_TOKEN) {
+      console.log("❌ No hay token para responder comentarios");
+      return;
+    }
+
+    // 2. Verificar si es una respuesta a otro comentario (evitar responder respuestas)
+    if (comment.parent_id) {
+      console.log(`⏭️ Ignorado: Es una respuesta a otro comentario (parent_id: ${comment.parent_id})`);
+      return;
+    }
+
+    // 3. Verificar si necesita respuesta (usando la nueva lógica mejorada)
+    const needsReply = await shouldReplyToComment(commentText);
+
+    if (needsReply) {
+      // Generar respuesta personalizada
+      const reply = await generateCommentReply(commentText);
+      
+      // Responder al comentario
+      await replyToInstagramComment(commentId, reply, PAGE_ACCESS_TOKEN);
+      
+      console.log(`✅ Comentario respondido: ${commentId}`);
+      console.log(`   👤 Usuario: @${commenterUsername}`);
+      console.log(`   📝 Respuesta: "${reply}"`);
+      
+      // Opcional: Guardar en base de datos que ya respondimos este comentario
+      // para evitar responder dos veces si hay delay
+    } else {
+      console.log(`⏭️ Comentario ignorado (no requiere respuesta): "${commentText}"`);
+    }
+  } catch (error) {
+    console.error("❌ Error en handleInstagramComment:", error);
+  }
+}
+
+async function handleInstagramMention(mention) {
+  try {
+    const mentionerId = mention.from.id;
+    console.log(`📣 Mención de ${mentionerId}`);
+
+    const PAGE_ACCESS_TOKEN = await getInstagramTokenForPage(mention.media_id);
+    
+    if (PAGE_ACCESS_TOKEN) {
+      const message = "¡Gracias por mencionarnos! 🎉 ¿Cómo podemos ayudarte?";
+      await sendInstagramMessage(mentionerId, message, PAGE_ACCESS_TOKEN);
+    }
+  } catch (error) {
+    console.error("❌ Error en handleInstagramMention:", error);
+  }
+}
+
+// ============================================================
+// FUNCIONES AUXILIARES DE INSTAGRAM
+// ============================================================
+
+async function getInstagramTokenForPage(pageId) {
+  try {
+    const database = await db.initDatabase();
+    const integration = await database.get(
+      "SELECT apiKey FROM integrations WHERE platform = 'instagram' AND isActive = 1 LIMIT 1"
+    );
+    
+    return integration?.apiKey || process.env.INSTAGRAM_PAGE_ACCESS_TOKEN;
+  } catch (error) {
+    console.error("Error obteniendo token:", error);
+    return process.env.INSTAGRAM_PAGE_ACCESS_TOKEN;
+  }
+}
+
+async function sendInstagramMessage(recipientId, messageText, accessToken) {
+  try {
+    const response = await axios.post(
+      `https://graph.facebook.com/v21.0/me/messages`,
+      {
+        recipient: { id: recipientId },
+        message: { text: messageText }
+      },
+      {
+        params: { access_token: accessToken }
+      }
+    );
+    return response.data;
+  } catch (error) {
+    console.error("❌ Error enviando mensaje:", error.response?.data || error.message);
+    throw error;
+  }
+}
+
+async function replyToInstagramComment(commentId, replyText, accessToken) {
+  try {
+    const response = await axios.post(
+      `https://graph.facebook.com/v21.0/${commentId}/replies`,
+      {
+        message: replyText
+      },
+      {
+        params: { access_token: accessToken }
+      }
+    );
+    return response.data;
+  } catch (error) {
+    console.error("❌ Error respondiendo comentario:", error.response?.data || error.message);
+    throw error;
+  }
+}
+
+async function getOrCreateUserFromInstagram(igUserId) {
+  try {
+    let user = await db.getUserByInstagramId(igUserId);
+    
+    if (!user) {
+      const profile = await getInstagramProfile(igUserId);
+      
+      user = await db.registerUser({
+        name: profile?.name || `Usuario IG ${igUserId}`,
+        email: `ig_${igUserId}@instagram.temp`,
+        password: Math.random().toString(36).slice(-8),
+        authType: 'instagram',
+        instagramId: igUserId,
+        avatar: profile?.profile_pic || null
+      });
+      
+      console.log(`✅ Usuario creado desde Instagram: ${user.id}`);
+    }
+    
+    return user.id;
+  } catch (error) {
+    console.error("❌ Error obteniendo/creando usuario:", error);
+    return 'instagram_user';
+  }
+}
+
+async function getInstagramProfile(igUserId) {
+  try {
+    const PAGE_ACCESS_TOKEN = await getInstagramTokenForPage(igUserId);
+    
+    const response = await axios.get(
+      `https://graph.facebook.com/v21.0/${igUserId}`,
+      {
+        params: {
+          fields: "name,username,profile_pic",
+          access_token: PAGE_ACCESS_TOKEN
+        }
+      }
+    );
+    return response.data;
+  } catch (error) {
+    console.error("❌ Error obteniendo perfil:", error.response?.data || error.message);
+    return null;
+  }
+}
+
+// ============================================================
+// LÓGICA MEJORADA PARA RESPONDER COMENTARIOS
+// ============================================================
+
+async function shouldReplyToComment(commentText) {
+  try {
+    // Normalizar el texto
+    const text = commentText.toLowerCase().trim();
+    
+    // 1. SIEMPRE responder si contiene estas palabras clave
+    const keywordsAlwaysReply = [
+      // Preguntas
+      '?', 'cómo', 'como', 'qué', 'que', 'cuánto', 'cuanto', 'dónde', 'donde',
+      'cuál', 'cual', 'cuándo', 'cuando', 'por qué', 'porque',
+      
+      // Interés comercial
+      'interesado', 'interesada', 'me interesa', 'estoy interesado',
+      'precio', 'costo', 'cuanto cuesta', 'cuánto cuesta',
+      'información', 'informacion', 'info', 'más información', 'mas informacion',
+      'contacto', 'contactar', 'whatsapp', 'correo', 'email',
+      'comprar', 'adquirir', 'contratar',
+      
+      // Solicitudes
+      'ayuda', 'ayúdame', 'ayudame', 'necesito', 'quiero',
+      'puedes', 'pueden', 'podrían', 'podrian',
+      
+      // Elogios que ameritan respuesta
+      'excelente publicación', 'excelente publicacion',
+      'muy bueno', 'muy buena', 'increíble', 'increible',
+      'me encanta', 'me gusta mucho',
+      
+      // Solicitudes específicas
+      'envíame', 'enviame', 'mándame', 'mandame', 'comparte',
+      'quiero saber', 'dime', 'cuéntame', 'cuentame'
+    ];
+    
+    // Verificar si contiene alguna palabra clave
+    const hasKeyword = keywordsAlwaysReply.some(keyword => text.includes(keyword));
+    
+    if (hasKeyword) {
+      console.log(`✅ Comentario con palabra clave detectada: "${commentText}"`);
+      return true;
+    }
+    
+    // 2. NO responder a comentarios muy cortos o solo emojis
+    if (text.length < 3) {
+      console.log(`⏭️ Comentario muy corto, no se responde: "${commentText}"`);
+      return false;
+    }
+    
+    // Solo emojis o caracteres especiales
+    const onlyEmojis = /^[\s\p{Emoji}\p{Emoji_Presentation}\p{Emoji_Modifier_Base}\p{Emoji_Component}!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?\n]+$/u;
+    if (onlyEmojis.test(text)) {
+      console.log(`⏭️ Solo emojis, no se responde: "${commentText}"`);
+      return false;
+    }
+    
+    // 3. Para otros casos, usar Gemini para decidir
+    if (!GEMINI_API_KEY) {
+      console.log('⚠️ GEMINI_API_KEY no configurada, no se responderá');
+      return false;
+    }
+    
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+    
+    const prompt = `Eres un asistente que decide si un comentario de Instagram requiere respuesta del bot de MAGIARS.
+
+MAGIARS es una plataforma de automatización de Instagram con IA.
+
+Responde "SI" si el comentario:
+- Expresa interés genuino en el producto/servicio
+- Es un elogio significativo (más que solo "nice" o "👍")
+- Solicita información
+- Pregunta algo
+- Muestra intención de compra o contacto
+- Es constructivo o propositivo
+
+Responde "NO" si el comentario:
+- Es solo emojis
+- Es muy genérico ("nice", "cool", "👍")
+- Es spam o irrelevante
+- Es un saludo simple sin contexto
+
+Comentario: "${commentText}"
+
+Responde SOLO "SI" o "NO", nada más.`;
+
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const answer = response.text().trim().toUpperCase();
+    
+    const shouldReply = answer === "SI";
+    
+    if (shouldReply) {
+      console.log(`🤖 Gemini decidió responder: "${commentText}"`);
+    } else {
+      console.log(`⏭️ Gemini decidió NO responder: "${commentText}"`);
+    }
+    
+    return shouldReply;
+    
+  } catch (error) {
+    console.error("Error determinando respuesta:", error);
+    return false;
+  }
+}
+
+// ============================================================
+// OPCIONAL: Generar respuestas más personalizadas para comentarios
+// ============================================================
+
+async function generateCommentReply(commentText) {
+  try {
+    if (!GEMINI_API_KEY) {
+      return "¡Gracias por tu comentario! 🙌 Escríbenos al DM para más información sobre MAGIARS.";
+    }
+
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+    const prompt = `Eres el bot de MAGIARS respondiendo a un comentario en Instagram.
+
+MAGIARS es una plataforma que:
+- Automatiza respuestas en Instagram con IA
+- Analiza métricas y estadísticas en tiempo real
+- Gestiona conversaciones y comentarios automáticamente
+- Mejora el engagement y resultados de marketing
+
+El comentario dice: "${commentText}"
+
+Genera una respuesta:
+- Corta (máximo 2-3 líneas)
+- Amigable y profesional
+- Si preguntan por precio/info, invítalos a escribir al DM
+- Si es un elogio, agradece y menciona algo de MAGIARS
+- Usa 1 emoji relevante máximo
+- NO uses hashtags
+
+Respuesta:`;
+
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    let reply = response.text().trim();
+    
+    // Limpiar la respuesta
+    reply = reply.replace(/['"`.]/g, '').trim();
+    
+    // Limitar a 150 caracteres (límite razonable para comentarios)
+    if (reply.length > 150) {
+      reply = reply.substring(0, 147) + "...";
+    }
+
+    return reply;
+    
+  } catch (error) {
+    console.error("Error generando respuesta de comentario:", error);
+    return "¡Gracias por tu interés! 💙 Escríbenos al DM para más información.";
+  }
+}
 
 // ============================================================
 // RUTAS DE ESCALACIONES
@@ -499,11 +1175,11 @@ async function isWithinBusinessHours() {
     return currentTime >= openTime && currentTime < closeTime;
   } catch (error) {
     console.error("Error verificando horarios:", error);
-    return true; // En caso de error, permitir acceso
+    return true;
   }
 }
 
-// Endpoint principal para mensajes - CORREGIDO
+// Endpoint principal para mensajes
 app.post("/api/messages", async (req, res) => {
   const { message, userId, conversationId, conversationHistory, isFirstMessage } = req.body;
 
@@ -512,7 +1188,6 @@ app.post("/api/messages", async (req, res) => {
   }
 
   try {
-    // Verificar horario de atención primero
     const withinHours = await isWithinBusinessHours();
     if (!withinHours) {
       const businessHours = await db.getBusinessHours();
@@ -523,7 +1198,6 @@ app.post("/api/messages", async (req, res) => {
       });
     }
     
-    // Verificar si quiere valorar
     if (wantsToRate(message)) {
       return res.json({
         reply: "¡Gracias por contactarnos! Nos encantaría saber tu opinión sobre la atención recibida.",
@@ -532,24 +1206,20 @@ app.post("/api/messages", async (req, res) => {
       });
     }
 
-    // Manejar conversación y mensajes
     let currentConversationId = conversationId;
-    let conversationTitle = null;  // 👈 VARIABLE PARA EL TÍTULO
+    let conversationTitle = null;
     
-    // Si es el primer mensaje, crear conversación
     if (isFirstMessage && userId) {
       currentConversationId = `conv-${Date.now()}`;
-      conversationTitle = await generateConversationTitle(message);  // 👈 GUARDAR TÍTULO
+      conversationTitle = await generateConversationTitle(message);
       await db.createConversation(userId, currentConversationId, conversationTitle);
       console.log(`✅ Nueva conversación creada: ${currentConversationId} - "${conversationTitle}"`);
     }
     
-    // Guardar mensaje del usuario
     if (currentConversationId) {
       await db.saveMessage(currentConversationId, 'user', message);
     }
     
-    // Verificar si requiere escalación
     if (requiresEscalation(message)) {
       const reply = "Entendido. Te conectaremos con un agente humano pronto.";
       
@@ -561,19 +1231,16 @@ app.post("/api/messages", async (req, res) => {
         reply, 
         requiresEscalation: true,
         conversationId: currentConversationId,
-        title: conversationTitle  // 👈 INCLUIR TÍTULO
+        title: conversationTitle
       });
     }
     
-    // Usar Gemini para responder
     const reply = await getGeminiResponse(message, conversationHistory || []);
     
-    // Guardar respuesta del bot
     if (currentConversationId) {
       await db.saveMessage(currentConversationId, 'assistant', reply);
     }
     
-    // Categorizar si tiene suficientes mensajes
     let category = null;
     if (conversationHistory && conversationHistory.length >= 2) {
       category = await categorizeConversation([
@@ -592,7 +1259,7 @@ app.post("/api/messages", async (req, res) => {
       requiresEscalation: false, 
       category,
       conversationId: currentConversationId,
-      title: conversationTitle  // 👈 INCLUIR TÍTULO AQUÍ TAMBIÉN
+      title: conversationTitle
     });
   } catch (error) {
     console.error("Error procesando mensaje:", error);
@@ -630,7 +1297,6 @@ app.delete("/api/conversations/:conversationId", async (req, res) => {
     const { conversationId } = req.params;
     const database = await db.initDatabase();
     
-    // SQLite con CASCADE eliminará automáticamente los mensajes relacionados
     await database.run('DELETE FROM conversations WHERE conversationId = ?', conversationId);
     
     console.log(`🗑️ Conversación ${conversationId} eliminada`);
@@ -642,10 +1308,9 @@ app.delete("/api/conversations/:conversationId", async (req, res) => {
 });
 
 // ============================================================
-// VALORACIONES (HU-15)
+// VALORACIONES
 // ============================================================
 
-// Guardar valoración
 app.post("/api/ratings", async (req, res) => {
   try {
     const { conversationId, userId, rating, comment } = req.body;
@@ -673,7 +1338,6 @@ app.post("/api/ratings", async (req, res) => {
   }
 });
 
-// Obtener valoraciones
 app.get("/api/ratings", async (req, res) => {
   try {
     const filters = {};
@@ -688,7 +1352,6 @@ app.get("/api/ratings", async (req, res) => {
   }
 });
 
-// Obtener estadísticas de valoraciones
 app.get("/api/ratings/stats", async (req, res) => {
   try {
     const userId = req.query.userId || null;
@@ -701,10 +1364,9 @@ app.get("/api/ratings/stats", async (req, res) => {
 });
 
 // ============================================================
-// HORARIOS DE ATENCIÓN (HU-12)
+// HORARIOS DE ATENCIÓN
 // ============================================================
 
-// Obtener horarios configurados
 app.get("/api/business-hours", async (req, res) => {
   try {
     const businessHours = await db.getBusinessHours();
@@ -715,7 +1377,6 @@ app.get("/api/business-hours", async (req, res) => {
   }
 });
 
-// Actualizar horarios
 app.post("/api/business-hours", async (req, res) => {
   try {
     const { enabled, timezone, schedule } = req.body;
@@ -734,7 +1395,6 @@ app.post("/api/business-hours", async (req, res) => {
   }
 });
 
-// Verificar si estamos en horario
 app.get("/api/business-hours/check", async (req, res) => {
   try {
     const isOpen = await isWithinBusinessHours();
@@ -746,9 +1406,9 @@ app.get("/api/business-hours/check", async (req, res) => {
   }
 });
 
-
 const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
   console.log(`🚀 MAGIARS backend listening on http://localhost:${PORT}`);
   console.log(`📊 SQLite database: magiars.db`);
+  console.log(`📸 Instagram webhook: /api/webhook/instagram`);
 });

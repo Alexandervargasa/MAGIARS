@@ -28,6 +28,12 @@ async function request(path, opts = {}) {
   return res.json();
 }
 
+// Función helper para obtener userId
+function getUserId() {
+  const user = JSON.parse(localStorage.getItem('user') || '{}');
+  return user.id || null;
+}
+
 const api = {
   // Health
   health() {
@@ -35,7 +41,7 @@ const api = {
   },
 
   // ============================================================
-  // AUTENTICACIÓN LOCAL (NUEVA)
+  // AUTENTICACIÓN LOCAL
   // ============================================================
   register(name, email, password) {
     return request("/auth/register", {
@@ -48,20 +54,6 @@ const api = {
     return request("/auth/login", {
       method: "POST",
       body: JSON.stringify({ email, password }),
-    });
-  },
-
-  // ============================================================
-  // AUTENTICACIÓN CON META (mantener por si acaso)
-  // ============================================================
-  getMetaLoginUrl() {
-    return request("/auth/meta-login-url");
-  },
-
-  metaCallback(code) {
-    return request("/auth/meta-callback", {
-      method: "POST",
-      body: JSON.stringify({ code }),
     });
   },
 
@@ -86,21 +78,26 @@ const api = {
   },
 
   // ============================================================
-  // INTEGRATIONS
+  // INTEGRACIONES (ACTUALIZADO)
   // ============================================================
-  getIntegrations(userId) {
-    return request(`/integrations?userId=${userId}`);
+  getIntegrations() {
+    const userId = getUserId();
+    return request(`/integrations?userId=${userId || ''}`);
   },
 
-  saveIntegrations(data) {
-    return request("/integrations", {
+  saveIntegrations(integrations) {
+    const userId = getUserId();
+    return request("/integrations/save", {
       method: "POST",
-      body: JSON.stringify(data),
+      body: JSON.stringify({ userId, integrations }),
     });
   },
 
-  testIntegrations() {
-    return request("/integrations/test", { method: "POST" });
+  testIntegrations(integrations) {
+    return request("/integrations/test", {
+      method: "POST",
+      body: JSON.stringify({ integrations }),
+    });
   },
 
   deleteIntegration(id) {
@@ -110,7 +107,7 @@ const api = {
   },
 
   // ============================================================
-  // ESCALATIONS (HU-03 / HU-04)
+  // ESCALACIONES
   // ============================================================
   listEscalations(filters = {}) {
     const params = new URLSearchParams();
@@ -169,7 +166,9 @@ const api = {
     });
   },
 
-  // VALORACIONES (HU-15)
+  // ============================================================
+  // VALORACIONES
+  // ============================================================
   submitRating(conversationId, userId, rating, comment = "") {
     return request("/ratings", {
       method: "POST",
@@ -191,7 +190,9 @@ const api = {
     return request(`/ratings/stats${params}`);
   },
 
-  // HORARIOS (HU-12)
+  // ============================================================
+  // HORARIOS
+  // ============================================================
   getBusinessHours() {
     return request("/business-hours");
   },
@@ -208,7 +209,7 @@ const api = {
   },
 
   // ============================================================
-  // ADMINISTRACIÓN (solo admins)
+  // ADMINISTRACIÓN
   // ============================================================
   getAllUsers() {
     return request("/admin/users");

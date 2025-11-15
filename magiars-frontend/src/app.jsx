@@ -6,7 +6,7 @@ import AuthCallback from "./pages/AuthCallback";
 import Home from "./pages/Home";
 import Dashboard from "./pages/Dashboard";
 import About from "./pages/About";
-import Inbox from "./pages/Inbox.jsx";
+// import Inbox from "./pages/Inbox.jsx";
 import Integrations from "./pages/Integrations.jsx";
 import ConnectionStatusBanner from "./components/ConnectionStatusBanner.jsx";
 import UserProfile from "./components/UserProfile.jsx";
